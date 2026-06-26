@@ -1,0 +1,29 @@
+import type { Config } from 'tailwindcss'
+
+const config: Config = {
+  content: ['./src/**/*.{ts,tsx}', './index.html'],
+  theme: {
+    extend: {
+      colors: {
+        bg: '#0c0c0c',
+        surface: '#141414',
+        border: '#242424',
+        accent: '#E8B547',
+        keep: '#5bb98c',
+        maybe: '#E8B547',
+        discard: '#c5524a',
+        'text-primary': '#F0EBE0',
+        'text-secondary': '#666666',
+        'text-muted': '#3d3d3d',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        heading: ['Space Grotesk', 'Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+      },
+    },
+  },
+  plugins: [],
+}
+
+export default config

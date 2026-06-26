@@ -1,0 +1,139 @@
+import React from 'react'
+import type { Status, Category } from '../env'
+
+export type SortKey = 'newest' | 'oldest' | 'status' | 'rating' | 'name'
+export type FilterStatus = Status | 'all'
+
+interface Counts { all: number; unsorted: number; keep: number; maybe: number; discard: number }
+
+interface Props {
+  filter: FilterStatus
+  onFilter: (f: FilterStatus) => void
+  filterCats: string[]
+  onFilterCats: (ids: string[]) => void
+  sort: SortKey
+  onSort: (s: SortKey) => void
+  search: string
+  onSearch: (s: string) => void
+  counts: Counts
+  categories: Record<string, Category>
+  searchRef: React.RefObject<HTMLInputElement>
+}
+
+const FILTER_TABS: { key: FilterStatus; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'unsorted', label: 'Unsorted' },
+  { key: 'keep', label: 'Keep' },
+  { key: 'maybe', label: 'Maybe' },
+  { key: 'discard', label: 'Discard' },
+]
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'newest', label: 'Newest' },
+  { key: 'oldest', label: 'Oldest' },
+  { key: 'status', label: 'Status' },
+  { key: 'rating', label: 'Rating' },
+  { key: 'name', label: 'Name' },
+]
+
+const STATUS_COLORS: Record<string, string> = {
+  all: 'border-white/30 bg-white/5 text-text-primary',
+  unsorted: 'border-white/30 bg-white/5 text-text-primary',
+  keep: 'border-[#5bb98c]/60 bg-[#5bb98c]/10 text-[#5bb98c]',
+  maybe: 'border-[#E8B547]/60 bg-[#E8B547]/10 text-[#E8B547]',
+  discard: 'border-red-500/50 bg-red-500/5 text-red-400',
+}
+
+export function FilterBar({ filter, onFilter, filterCats, onFilterCats, sort, onSort, search, onSearch, counts, categories, searchRef }: Props) {
+  const catList = Object.values(categories).filter(c => !c.parentId)
+
+  const toggleCat = (id: string) => {
+    onFilterCats(filterCats.includes(id) ? filterCats.filter(c => c !== id) : [...filterCats, id])
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 bg-bg border-b border-border flex-shrink-0 flex-wrap">
+      {/* Status pills */}
+      <div className="flex items-center gap-1">
+        {FILTER_TABS.map(tab => {
+          const count = counts[tab.key]
+          const active = filter === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => onFilter(tab.key)}
+              className={`
+                flex items-center gap-1.5 px-2.5 py-[5px] rounded-md text-[11.7px] font-mono font-semibold border transition-all duration-150
+                ${active ? STATUS_COLORS[tab.key] : 'border-border text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}
+              `}
+            >
+              {tab.label}
+              <span className={`tabular-nums ${active ? 'opacity-80' : 'opacity-50'}`}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Divider */}
+      {catList.length > 0 && <div className="w-px h-4 bg-border flex-shrink-0" />}
+
+      {/* Category filters */}
+      {catList.slice(0, 4).map(cat => {
+        const active = filterCats.includes(cat.id)
+        return (
+          <button
+            key={cat.id}
+            onClick={() => toggleCat(cat.id)}
+            className={`
+              px-2 py-[5px] rounded-md text-[11.7px] font-mono border transition-all duration-150
+              ${active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}
+            `}
+          >
+            {cat.name}
+          </button>
+        )
+      })}
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Sort */}
+      <div className="flex items-center gap-1">
+        <span className="text-[11.7px] font-mono text-text-muted uppercase tracking-widest mr-1">Sort</span>
+        {SORT_OPTIONS.map(opt => (
+          <button
+            key={opt.key}
+            onClick={() => onSort(opt.key)}
+            className={`
+              px-2 py-[5px] rounded text-[11.7px] font-mono transition-all duration-150
+              ${sort === opt.key ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'}
+            `}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Divider */}
+      <div className="w-px h-4 bg-border flex-shrink-0" />
+
+      {/* Search */}
+      <div className="flex items-center gap-1.5 bg-surface border border-border rounded-lg px-2.5 py-[5px]">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-text-muted flex-shrink-0">
+          <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
+          <path d="M7 7l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+        </svg>
+        <input
+          ref={searchRef}
+          value={search}
+          onChange={e => onSearch(e.target.value)}
+          placeholder="Search..."
+          className="w-24 bg-transparent text-[11.7px] font-mono text-text-primary placeholder:text-text-muted focus:outline-none"
+        />
+        {search && (
+          <button onClick={() => onSearch('')} className="text-text-muted hover:text-text-secondary text-[11.7px]">×</button>
+        )}
+      </div>
+    </div>
+  )
+}

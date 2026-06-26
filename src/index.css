@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0c0c0c;
+  color: #F0EBE0;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #0c0c0c; }
+::-webkit-scrollbar-thumb { background: #242424; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #323232; }
+
+.titlebar-drag { -webkit-app-region: drag; }
+.titlebar-nodrag { -webkit-app-region: no-drag; }
+
+textarea { resize: none; outline: none; background: transparent; }
+
+.selectable { user-select: text; -webkit-user-select: text; }
+
+/* Pulse animation for newly added cards */
+@keyframes pulse-border {
+  0%   { box-shadow: 0 0 0 0 rgba(232,181,71,0.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(232,181,71,0); }
+  100% { box-shadow: 0 0 0 0 rgba(232,181,71,0); }
+}
+.pulse-new { animation: pulse-border 1s ease-out; }
