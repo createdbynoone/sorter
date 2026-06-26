@@ -20,7 +20,8 @@ contextBridge.exposeInMainWorld('sorter', {
   getThumbnail:   (path: string)                  => ipcRenderer.invoke('sorter:get-thumb', path),
   revealInFinder: (path: string)                  => ipcRenderer.invoke('sorter:reveal', path),
   openExternal:   (path: string)                  => ipcRenderer.invoke('sorter:open', path),
-  purgeMissing:   ()                              => ipcRenderer.invoke('sorter:purge-missing'),
+  purgeMissing:      ()                              => ipcRenderer.invoke('sorter:purge-missing'),
+  trashDiscarded:    ()                              => ipcRenderer.invoke('sorter:trash-discarded'),
 
   getVersion: () => ipcRenderer.invoke('get-version'),
 

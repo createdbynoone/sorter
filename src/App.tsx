@@ -33,8 +33,21 @@ function Footer({ entries, version }: { entries: ImageEntry[]; version: string }
 
 // ─── TitleBar ─────────────────────────────────────────────────────────────────
 
-function TitleBar({ onImport, onRescan, scanning, bmpPath }: { onImport: () => void; onRescan: () => void; scanning: boolean; bmpPath: string }) {
+function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrashDiscarded }: {
+  onImport: () => void
+  onRescan: () => void
+  scanning: boolean
+  bmpPath: string
+  discardCount: number
+  onTrashDiscarded: () => void
+}) {
   const shortPath = bmpPath ? bmpPath.replace(/^\/Users\/[^/]+\//, '~/') : ''
+  const handleTrash = () => {
+    if (discardCount === 0) return
+    if (window.confirm(`Move ${discardCount} discarded image${discardCount !== 1 ? 's' : ''} to Trash? This cannot be undone.`)) {
+      onTrashDiscarded()
+    }
+  }
   return (
     <div className="titlebar-drag flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
       <div className="titlebar-nodrag flex items-center gap-3" style={{ marginLeft: '64px' }}>
@@ -49,6 +62,20 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath }: { onImport: () => v
         )}
       </div>
       <div className="titlebar-nodrag flex items-center gap-2">
+        {discardCount > 0 && (
+          <>
+            <button
+              onClick={handleTrash}
+              className="text-[11.7px] text-red-400/60 hover:text-red-400 uppercase tracking-widest transition-colors flex items-center gap-1.5"
+            >
+              <svg width="9" height="10" viewBox="0 0 9 10" fill="none">
+                <path d="M1 2.5h7M3.5 2.5V1.5h2V2.5M2 2.5l.5 6h4l.5-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Trash {discardCount} discarded
+            </button>
+            <span className="text-border">·</span>
+          </>
+        )}
         <button
           onClick={onRescan}
           disabled={scanning}
@@ -80,7 +107,6 @@ export default function App() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'grid' | 'focus'>('grid')
   const [filter, setFilter] = useState<FilterStatus>('all')
-  const [filterCats, setFilterCats] = useState<string[]>([])
   const [sort, setSort] = useState<SortKey>('newest')
   const [search, setSearch] = useState('')
   const [scanning, setScanning] = useState(false)
@@ -138,7 +164,6 @@ export default function App() {
     let list = Object.values(entries)
 
     if (filter !== 'all') list = list.filter(e => e.status === filter)
-    if (filterCats.length > 0) list = list.filter(e => filterCats.some(id => e.categories.includes(id)))
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(e => e.path.toLowerCase().includes(q) || e.note.toLowerCase().includes(q))
@@ -158,7 +183,7 @@ export default function App() {
       }
     })
     return list
-  }, [entries, filter, filterCats, sort, search])
+  }, [entries, filter, sort, search])
 
   const selectedIdx = selectedPath ? filteredEntries.findIndex(e => e.path === selectedPath) : -1
   const selectedEntry = selectedPath ? entries[selectedPath] ?? null : null
@@ -167,7 +192,7 @@ export default function App() {
   type SubGroup = { id: string | null; name: string; entries: ImageEntry[] }
   type CatGroup = { id: string | null; name: string; count: number; subGroups: SubGroup[] }
   const groupedEntries = useMemo<CatGroup[] | null>(() => {
-    if (filter !== 'all' || filterCats.length > 0 || search.trim()) return null
+    if (filter !== 'all' || search.trim()) return null
 
     const parentCats = Object.values(categories).filter(c => !c.parentId).sort((a, b) => a.createdAt - b.createdAt)
     const childCats  = Object.values(categories).filter(c => !!c.parentId)
@@ -205,7 +230,7 @@ export default function App() {
     }
 
     return groups.length > 0 ? groups : null
-  }, [filter, filterCats, search, filteredEntries, categories])
+  }, [filter, search, filteredEntries, categories])
 
   // Counts
   const counts = useMemo(() => {
@@ -255,6 +280,13 @@ export default function App() {
 
   const handleDropPaths = useCallback((paths: string[]) => {
     window.sorter.importPaths(paths).then(applyDB)
+  }, [])
+
+  const handleTrashDiscarded = useCallback(() => {
+    window.sorter.trashDiscarded().then(db => {
+      applyDB(db)
+      setSelectedPath(prev => prev && db.entries[prev] ? prev : null)
+    })
   }, [])
 
   // Grid keyboard nav
@@ -313,17 +345,15 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-bg overflow-hidden">
-      <TitleBar onImport={handleImport} onRescan={handleRescan} scanning={scanning} bmpPath={bmpPath} />
+      <TitleBar onImport={handleImport} onRescan={handleRescan} scanning={scanning} bmpPath={bmpPath} discardCount={counts.discard} onTrashDiscarded={handleTrashDiscarded} />
       <div className="h-px bg-border flex-shrink-0" />
       <UpdateBar />
 
       <FilterBar
         filter={filter} onFilter={setFilter}
-        filterCats={filterCats} onFilterCats={setFilterCats}
         sort={sort} onSort={setSort}
         search={search} onSearch={setSearch}
         counts={counts}
-        categories={categories}
         searchRef={searchRef}
         gridSize={gridSize} onGridSize={setGridSize}
       />

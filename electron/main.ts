@@ -479,6 +479,28 @@ async function callHaikuClassify(base64: string, mediaType: string, catalogLines
   }
 }
 
+// Constrained re-classify: forces Claude to pick from an exact product list for a known category.
+// Used as fallback when the initial product name isn't in the catalog.
+async function callHaikuClassifyConstrained(base64: string, mediaType: string, categoryName: string, products: string[]): Promise<string> {
+  const list = products.map(p => `• ${p}`).join('\n')
+  const response = await anthropic!.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 60,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+        {
+          type: 'text',
+          text: `This is a Brotherhood ${categoryName} product. You MUST pick the single closest match from this exact list — do not invent or modify any name:\n\n${list}\n\nReply with exactly:\nPRODUCT: <exact name from the list above>`,
+        },
+      ]
+    }]
+  })
+  const text = (response.content[0] as { text: string }).text.trim()
+  return text.match(/PRODUCT:\s*(.+)/i)?.[1].trim() ?? ''
+}
+
 async function autoClassifyEntry(entry: ImageEntry): Promise<void> {
   if (!anthropic) return
 
@@ -535,19 +557,34 @@ async function autoClassifyEntry(entry: ImageEntry): Promise<void> {
     }
   }
 
+  // Constrained fallback: if product still not in catalog, force Claude to pick from the exact list
+  if (!catalogMatch && !ignore.has(prodStr.toLowerCase()) && catalogForCat().length > 0) {
+    console.log(`[Sorter] Constrained re-classify for "${prodStr}" in ${parentCat.name}`)
+    try {
+      const constrainedProd = await callHaikuClassifyConstrained(base64, mediaType, parentCat.name, catalogForCat())
+      const constrainedMatch = !ignore.has(constrainedProd.toLowerCase()) ? findCatalogMatch(constrainedProd) : undefined
+      if (constrainedMatch) {
+        catalogMatch = constrainedMatch
+        prodStr = constrainedMatch
+        console.log(`[Sorter] Constrained match: "${constrainedMatch}"`)
+      }
+    } catch (e) {
+      console.warn('[Sorter] Constrained classify failed:', e)
+    }
+  }
+
   const [resolvedParentId] = parentPair
   const catIds = [resolvedParentId]
 
-  // Assign subcategory — prefer exact catalog casing, fall back to Claude's text
-  if (!ignore.has(prodStr.toLowerCase())) {
-    const canonicalName = catalogMatch ?? prodStr
-    const normName = canonicalName.toLowerCase()
+  // Assign subcategory only when we have a catalog-verified match
+  if (catalogMatch && !ignore.has(prodStr.toLowerCase())) {
+    const normName = catalogMatch.toLowerCase()
     const existingSub = Object.entries(db.categories).find(([_, c]) =>
       c.parentId === resolvedParentId && c.name.toLowerCase() === normName
     )
     const subId = existingSub?.[0] ?? (() => {
       const id = uniqueId()
-      db.categories[id] = { id, name: canonicalName, parentId: resolvedParentId, createdAt: Date.now() }
+      db.categories[id] = { id, name: catalogMatch!, parentId: resolvedParentId, createdAt: Date.now() }
       return id
     })()
     catIds.push(subId)
@@ -878,6 +915,16 @@ ipcMain.handle('sorter:open', (_event, path: unknown) => {
 ipcMain.handle('sorter:purge-missing', () => {
   for (const [path, entry] of Object.entries(db.entries)) {
     if (entry.missing) delete db.entries[path]
+  }
+  scheduleFlush()
+  return db
+})
+
+ipcMain.handle('sorter:trash-discarded', async () => {
+  const discarded = Object.values(db.entries).filter(e => e.status === 'discard' && !e.missing)
+  for (const entry of discarded) {
+    try { await shell.trashItem(entry.path) } catch {}
+    delete db.entries[entry.path]
   }
   scheduleFlush()
   return db

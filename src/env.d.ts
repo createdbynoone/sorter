@@ -45,7 +45,8 @@ interface Window {
     getThumbnail:   (path: string)                  => Promise<string>
     revealInFinder: (path: string)                  => Promise<void>
     openExternal:   (path: string)                  => Promise<void>
-    purgeMissing:   ()                              => Promise<SorterDB>
+    purgeMissing:      ()                              => Promise<SorterDB>
+    trashDiscarded:    ()                              => Promise<SorterDB>
     getVersion:     ()                              => Promise<string>
     onFileAdded:    (cb: (entry: ImageEntry) => void) => () => void
     onFileRemoved:  (cb: (path: string) => void)      => () => void
