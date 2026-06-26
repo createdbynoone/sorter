@@ -940,15 +940,25 @@ ipcMain.handle('sorter:purge-missing', () => {
 
 ipcMain.handle('sorter:trash-discarded', async () => {
   const discarded = Object.values(db.entries).filter(e => e.status === 'discard' && !e.missing)
+  const trashDir = join(homedir(), '.Trash')
 
   const trashOne = async (entry: ImageEntry): Promise<boolean> => {
-    // File already gone — safe to remove from DB
     if (!existsSync(entry.path)) return true
-    try { await shell.trashItem(entry.path); return true }
-    catch { return false }
+    const filename = entry.path.split('/').pop()!
+    let dest = join(trashDir, filename)
+    // Resolve name collisions in Trash with a timestamp suffix
+    if (existsSync(dest)) {
+      const dot = filename.lastIndexOf('.')
+      const base = dot > 0 ? filename.slice(0, dot) : filename
+      const ext  = dot > 0 ? filename.slice(dot) : ''
+      dest = join(trashDir, `${base}_${Date.now()}${ext}`)
+    }
+    try {
+      await execFileAsync('mv', [entry.path, dest], { env: shellEnv() })
+      return true
+    } catch { return false }
   }
 
-  // Run up to 8 trash operations in parallel; only remove from DB on success
   const BATCH = 8
   for (let i = 0; i < discarded.length; i += BATCH) {
     const batch = discarded.slice(i, i + BATCH)

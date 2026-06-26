@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Inspector } from './Inspector'
 import { StatusBadge } from './StatusBadge'
 import { useKeyboard } from '../hooks/useKeyboard'
@@ -24,6 +24,11 @@ interface Props {
 export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, onClassify, autoAdvance }: Props) {
   const entry = entries[index]
   const [focusNote, setFocusNote] = useState(false)
+  const [zoom, setZoom] = useState(1)
+  const imgContainerRef = useRef<HTMLDivElement>(null)
+
+  // Reset zoom on image change
+  useEffect(() => { setZoom(1) }, [index])
 
   const navigate = useCallback((delta: number) => {
     const next = index + delta
@@ -62,6 +67,19 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
   })
 
   useEffect(() => { setFocusNote(false) }, [index])
+
+  // Wheel zoom — non-passive so we can preventDefault (stops page scroll)
+  useEffect(() => {
+    const el = imgContainerRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
+      setZoom(z => Math.min(8, Math.max(0.25, z * factor)))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   if (!entry) return null
 
@@ -121,14 +139,29 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
         </div>
 
         {/* Image */}
-        <div className="flex-1 flex items-center justify-center p-6 min-h-0 relative">
+        <div
+          ref={imgContainerRef}
+          className="flex-1 flex items-center justify-center p-6 min-h-0 relative overflow-hidden"
+          style={{ cursor: zoom !== 1 ? 'zoom-in' : 'default' }}
+          onDoubleClick={() => setZoom(1)}
+        >
           <img
             key={entry.path}
             src={`localfile://${entry.path}`}
             alt=""
             className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-200 ${entry.status === 'discard' ? 'opacity-50 grayscale' : ''}`}
-            style={{ maxHeight: '100%' }}
+            style={{
+              maxHeight: '100%',
+              transform: `scale(${zoom})`,
+              transformOrigin: 'center center',
+              transition: zoom === 1 ? 'transform 0.15s ease' : 'none',
+            }}
           />
+          {zoom !== 1 && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-surface/90 border border-border rounded-full px-3 py-1 text-[11.7px] font-mono text-text-secondary pointer-events-none">
+              {Math.round(zoom * 100)}% · doble clic para resetear
+            </div>
+          )}
         </div>
 
         {/* Keyboard hint bar */}
