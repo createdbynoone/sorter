@@ -38,7 +38,7 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath }: { onImport: () => v
   return (
     <div className="titlebar-drag flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
       <div className="titlebar-nodrag flex items-center gap-3" style={{ marginLeft: '64px' }}>
-        <span className="font-heading font-bold text-base text-text-primary tracking-tight">Sorter</span>
+        <span className="font-heading font-bold text-base text-text-primary tracking-[0.15em] uppercase">Sorter</span>
         <span className="text-text-muted text-xs">·</span>
         <span className="text-text-secondary text-xs font-medium tracking-wide">Generation Triage</span>
         {shortPath && (
@@ -91,6 +91,7 @@ export default function App() {
   const [focusNote, setFocusNote] = useState(false)
   const [bmpPath, setBmpPath] = useState('')
   const [gridSize, setGridSize] = useState(160)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Boot
@@ -341,11 +342,21 @@ export default function App() {
             <div className="flex flex-col gap-10">
               {groupedEntries.map(group => {
                 const hasProducts = group.subGroups.some(s => s.id !== null)
+                const groupKey = group.id ?? '__uncat'
+                const collapsed = collapsedGroups.has(groupKey)
+                const toggleCollapse = () => setCollapsedGroups(prev => {
+                  const next = new Set(prev)
+                  next.has(groupKey) ? next.delete(groupKey) : next.add(groupKey)
+                  return next
+                })
                 return (
-                  <div key={group.id ?? '__uncat'}>
+                  <div key={groupKey}>
                     {/* ── Category header ─────────────────────────────── */}
-                    <div className="flex items-center gap-3 mb-5 px-1">
-                      <span className="text-[12.7px] font-heading font-bold uppercase tracking-[0.22em] text-text-primary whitespace-nowrap">
+                    <button
+                      onClick={toggleCollapse}
+                      className="w-full flex items-center gap-3 mb-5 px-1 group text-left"
+                    >
+                      <span className="text-[12.7px] font-heading font-bold uppercase tracking-[0.22em] text-text-primary whitespace-nowrap group-hover:text-accent transition-colors">
                         {group.name}
                       </span>
                       <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{group.count}</span>
@@ -355,10 +366,13 @@ export default function App() {
                         </span>
                       )}
                       <div className="flex-1 h-px bg-border" />
-                    </div>
+                      <span className="text-[11.7px] font-mono text-text-muted/40 group-hover:text-text-muted transition-colors flex-shrink-0">
+                        {collapsed ? '▸' : '▾'}
+                      </span>
+                    </button>
 
                     {/* ── Product subgroups ───────────────────────────── */}
-                    <div className="flex flex-col gap-6">
+                    {!collapsed && <div className="flex flex-col gap-6">
                       {group.subGroups.map(sub => (
                         <div key={sub.id ?? `${group.id}__nosub`}>
                           {/* Product sub-header — always shown when it has a real product id */}
@@ -390,7 +404,7 @@ export default function App() {
                           </div>
                         </div>
                       ))}
-                    </div>
+                    </div>}
                   </div>
                 )
               })}
