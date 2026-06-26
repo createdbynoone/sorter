@@ -447,8 +447,59 @@ async function processClassifyQueue() {
   console.log('[Sorter] Classification queue done')
 }
 
-// ── Step 1: identify garment type from category names only (no product noise) ──
-async function callHaikuClassifyCategory(base64: string, mediaType: string): Promise<string> {
+// Prepare image for classification: 1200px max, q90, 'best' resampling.
+// Much more detail than the 400px display thumbnails — text, embroidery, logos are legible.
+async function prepareClassifyImage(path: string): Promise<{ base64: string; mediaType: 'image/jpeg' | 'image/png' }> {
+  const isPNG = path.toLowerCase().endsWith('.png')
+  const mediaType: 'image/jpeg' | 'image/png' = isPNG ? 'image/png' : 'image/jpeg'
+  try {
+    const img = nativeImage.createFromPath(path)
+    if (!img.isEmpty()) {
+      const { width, height } = img.getSize()
+      const MAX = 1200
+      if (Math.max(width, height) > MAX) {
+        const scale = MAX / Math.max(width, height)
+        const resized = img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' })
+        return { base64: resized.toJPEG(90).toString('base64'), mediaType: 'image/jpeg' }
+      }
+      const bytes = isPNG ? img.toPNG() : img.toJPEG(92)
+      if (bytes.length > 0) return { base64: bytes.toString('base64'), mediaType }
+    }
+  } catch {}
+  return { base64: readFileSync(path).toString('base64'), mediaType }
+}
+
+// Auto-annotate product names with visual keywords so the model has immediate color/style hints.
+function annotateProducts(products: string[]): string {
+  const HINTS: Record<string, string> = {
+    'BLACK': 'black', 'WHITE': 'white', 'GRAY': 'gray', 'GREY': 'gray',
+    'BEIGE': 'beige/cream', 'GREEN': 'green/olive', 'KHAKI': 'khaki/tan',
+    'DENIM': 'denim fabric', 'WASHED': 'washed/distressed',
+    'OVERSIZED': 'oversized fit', 'TRUCKER': 'trucker mesh back',
+    'COTTON': 'cotton', 'WORKING': 'workwear cut',
+    'MILITARY': 'military construction', 'ORIGIN': 'origin Brotherhood design',
+    'ESSENCE': 'minimal/clean construction', 'CLASSIC': 'classic minimal',
+    'FLAMES': 'flame graphic', 'CLOUD': 'cloud graphic', 'STARS': 'star graphic',
+    'BLAME': 'Blame Faces print', 'CREATIVE': 'Creative Crown logo',
+    'HEAVEN': 'Heaven text', 'TAG': 'tag detail', 'SIDE': 'side placement',
+    'DOG': 'dog graphic', 'BUCKY': 'Bucky character', 'IDEALS': 'BH Ideals text',
+    '1998': '1998 retro branding', 'BLACKOUT': 'all-black', 'WHITEOUT': 'all-white',
+  }
+  return products.map((p, i) => {
+    const words = p.toUpperCase().split(/[\s\-_]+/)
+    const seen = new Set<string>()
+    const hints: string[] = []
+    for (const word of words) {
+      for (const [kw, hint] of Object.entries(HINTS)) {
+        if (word.includes(kw) && !seen.has(hint)) { seen.add(hint); hints.push(hint) }
+      }
+    }
+    return hints.length > 0 ? `${i + 1}. ${p}  [${hints.join(', ')}]` : `${i + 1}. ${p}`
+  }).join('\n')
+}
+
+// Step 1: garment type only — Haiku is sufficient (9 options, clear visual distinction)
+async function classifyCategory(base64: string, mediaType: string): Promise<string> {
   const categoryNames = Object.values(db.categories)
     .filter(c => !c.parentId)
     .map(c => `• ${c.name}`)
@@ -460,10 +511,7 @@ async function callHaikuClassifyCategory(base64: string, mediaType: string): Pro
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        {
-          type: 'text',
-          text: `What type of Brotherhood garment is shown? Choose exactly one:\n${categoryNames}\n\nReply with exactly:\nCATEGORY: <name from list>`,
-        },
+        { type: 'text', text: `What type of Brotherhood garment is shown? Choose exactly one:\n${categoryNames}\n\nReply with exactly:\nCATEGORY: <name from list>` },
       ]
     }]
   })
@@ -471,42 +519,40 @@ async function callHaikuClassifyCategory(base64: string, mediaType: string): Pro
   return text.match(/CATEGORY:\s*(.+)/i)?.[1].trim() ?? ''
 }
 
-// ── Step 2: identify specific product from the short list for that category ────
-async function callHaikuClassifyProduct(base64: string, mediaType: string, categoryName: string, products: string[]): Promise<string> {
-  const list = products.map((p, i) => `${i + 1}. ${p}`).join('\n')
+// Step 2: specific product — Sonnet 4.6 with chain-of-thought (observe → match).
+// The OBSERVATION line forces the model to analyze the image before committing to a product.
+async function classifyProduct(base64: string, mediaType: string, categoryName: string, products: string[]): Promise<string> {
+  const annotated = annotateProducts(products)
   const response = await anthropic!.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 60,
+    model: 'claude-sonnet-4-6',
+    max_tokens: 120,
     messages: [{
       role: 'user',
       content: [
         { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
         {
           type: 'text',
-          text: `This is a Brotherhood ${categoryName}. Identify the exact product from the numbered list below.\n\nFocus on: exact colorway (black / gray / green / beige / white / khaki), material texture, silhouette, and any visible branding or embroidery.\n\n${list}\n\nYou MUST pick one from the list above — do not invent names. Reply with exactly:\nPRODUCT: <exact name from list>`,
+          text: `You are identifying a specific Brotherhood ${categoryName} from a high-quality streetwear render.\n\nProducts (pick exactly one):\n${annotated}\n\nAnalyze the render carefully:\n• Primary and secondary colorway (exact shade)\n• Construction and silhouette details\n• Any visible text, embroidery, logos, patches, or graphic prints\n• Fabric texture, stitching, material finish\n\nFirst describe what you observe, then pick.\nReply with exactly:\nOBSERVATION: <one sentence about the key visual characteristics>\nPRODUCT: <exact name from the numbered list above>`,
         },
       ]
     }]
   })
   const text = (response.content[0] as { text: string }).text.trim()
+  const obs = text.match(/OBSERVATION:\s*(.+)/i)?.[1]?.trim()
+  if (obs) console.log(`[Sorter] vision: ${obs}`)
   return text.match(/PRODUCT:\s*(.+)/i)?.[1].trim() ?? ''
 }
 
 async function autoClassifyEntry(entry: ImageEntry): Promise<void> {
   if (!anthropic) return
 
-  await generateThumb(entry.path).catch(() => {})
-  const key = hashStr(entry.fingerprint || entry.path)
-  const cachePath = join(thumbsDir(), `${key}.jpg`)
-  const imagePath = existsSync(cachePath) ? cachePath : entry.path
-
-  const imageBytes = readFileSync(imagePath)
-  const base64 = imageBytes.toString('base64')
-  const mediaType = imagePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+  // Use high-detail image for both steps — NOT the 400px display thumbnail
+  generateThumb(entry.path).catch(() => {}) // warm display cache in background
+  const { base64, mediaType } = await prepareClassifyImage(entry.path)
   const ignore = new Set(['other', 'unknown', 'n/a', 'none', ''])
 
   // ── Step 1: category ──────────────────────────────────────────────────────
-  const typeStr = await callHaikuClassifyCategory(base64, mediaType)
+  const typeStr = await classifyCategory(base64, mediaType)
   console.log(`[Sorter] ${entry.path.split('/').pop()} → category:"${typeStr}"`)
 
   const parentPair = Object.entries(db.categories).find(([_, c]) =>
@@ -521,35 +567,29 @@ async function autoClassifyEntry(entry: ImageEntry): Promise<void> {
   const [parentId, parentCat] = parentPair
   const catIds = [parentId]
 
-  // If no products known for this category yet, save parent only
   let products = liveCatalog[parentCat.name] ?? []
-  if (products.length === 0) {
-    await refreshCatalog(true)
-    products = liveCatalog[parentCat.name] ?? []
-  }
+  if (products.length === 0) { await refreshCatalog(true); products = liveCatalog[parentCat.name] ?? [] }
   if (products.length === 0) {
     mutateEntry(entry.path, e => { e.categories = catIds })
     mainWindow?.webContents.send('sorter:classified', db.entries[entry.path])
     return
   }
 
-  // ── Step 2: product (constrained to this category's list from the start) ──
-  const prodStr = await callHaikuClassifyProduct(base64, mediaType, parentCat.name, products)
+  // ── Step 2: product (Sonnet 4.6, annotated list, chain-of-thought) ────────
+  const prodStr = await classifyProduct(base64, mediaType, parentCat.name, products)
   console.log(`[Sorter] ${entry.path.split('/').pop()} → product:"${prodStr}"`)
 
   const findMatch = (s: string, list: string[]) => list.find(p => p.toLowerCase() === s.toLowerCase())
   let catalogMatch = !ignore.has(prodStr.toLowerCase()) ? findMatch(prodStr, products) : undefined
 
-  // If not matched, refresh catalog — new product may have just been added
   if (!catalogMatch && !ignore.has(prodStr.toLowerCase())) {
     const hadNew = await refreshCatalog(true)
     if (hadNew) {
       const updated = liveCatalog[parentCat.name] ?? []
       catalogMatch = findMatch(prodStr, updated)
-      // If still no match with updated list, one more constrained call
       if (!catalogMatch && updated.length > 0) {
-        const retry = await callHaikuClassifyProduct(base64, mediaType, parentCat.name, updated)
-        console.log(`[Sorter] ${entry.path.split('/').pop()} → product retry:"${retry}"`)
+        const retry = await classifyProduct(base64, mediaType, parentCat.name, updated)
+        console.log(`[Sorter] ${entry.path.split('/').pop()} → retry:"${retry}"`)
         catalogMatch = !ignore.has(retry.toLowerCase()) ? findMatch(retry, updated) : undefined
       }
     }
