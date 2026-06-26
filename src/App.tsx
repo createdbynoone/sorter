@@ -338,53 +338,62 @@ export default function App() {
               </p>
             </div>
           ) : groupedEntries ? (
-            <div className="flex flex-col gap-8">
-              {groupedEntries.map(group => (
-                <div key={group.id ?? '__uncat'}>
-                  {/* Parent category header */}
-                  <div className="flex items-center gap-3 mb-4 px-1">
-                    <span className="text-[12.7px] font-heading font-bold uppercase tracking-[0.2em] text-text-primary whitespace-nowrap">
-                      {group.name}
-                    </span>
-                    <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{group.count}</span>
-                    <div className="flex-1 h-px bg-border" />
-                  </div>
+            <div className="flex flex-col gap-10">
+              {groupedEntries.map(group => {
+                const hasProducts = group.subGroups.some(s => s.id !== null)
+                return (
+                  <div key={group.id ?? '__uncat'}>
+                    {/* ── Category header ─────────────────────────────── */}
+                    <div className="flex items-center gap-3 mb-5 px-1">
+                      <span className="text-[12.7px] font-heading font-bold uppercase tracking-[0.22em] text-text-primary whitespace-nowrap">
+                        {group.name}
+                      </span>
+                      <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{group.count}</span>
+                      {hasProducts && (
+                        <span className="text-[11.7px] font-mono text-text-muted/50">
+                          · {group.subGroups.filter(s => s.id !== null).length} producto{group.subGroups.filter(s => s.id !== null).length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      <div className="flex-1 h-px bg-border" />
+                    </div>
 
-                  {/* Subcategory groups */}
-                  <div className="flex flex-col gap-5 pl-3 border-l border-border/50">
-                    {group.subGroups.map(sub => (
-                      <div key={sub.id ?? `${group.id}__nosub`}>
-                        {/* Sub-header — only shown when there are multiple subgroups or a real subcategory */}
-                        {(group.subGroups.length > 1 || sub.id !== null) && (
-                          <div className="flex items-center gap-2.5 mb-2 px-1">
-                            <span className="text-[11.7px] font-mono text-accent/80 uppercase tracking-widest whitespace-nowrap">
-                              {sub.name}
-                            </span>
-                            <span className="text-[11.7px] font-mono text-text-muted/60 tabular-nums">{sub.entries.length}</span>
-                            <div className="flex-1 h-px bg-border/40" />
+                    {/* ── Product subgroups ───────────────────────────── */}
+                    <div className="flex flex-col gap-6">
+                      {group.subGroups.map(sub => (
+                        <div key={sub.id ?? `${group.id}__nosub`}>
+                          {/* Product sub-header — always shown when it has a real product id */}
+                          {sub.id !== null && (
+                            <div className="flex items-center gap-2 mb-2.5 px-1">
+                              <span className="w-1 h-1 rounded-full bg-accent/60 flex-shrink-0" />
+                              <span className="text-[11.7px] font-mono text-text-secondary uppercase tracking-widest whitespace-nowrap">
+                                {sub.name}
+                              </span>
+                              <span className="text-[11.7px] font-mono text-text-muted/50 tabular-nums">{sub.entries.length}</span>
+                              <div className="flex-1 h-px bg-border/30" />
+                            </div>
+                          )}
+                          <div
+                            className="image-grid grid gap-2"
+                            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridSize}px, 1fr))` }}
+                          >
+                            {sub.entries.map(entry => (
+                              <ImageCard
+                                key={entry.path}
+                                entry={entry}
+                                categories={categories}
+                                selected={entry.path === selectedPath}
+                                isNew={newPaths.has(entry.path)}
+                                onClick={() => setSelectedPath(entry.path)}
+                                onDoubleClick={() => { setSelectedPath(entry.path); setViewMode('focus') }}
+                              />
+                            ))}
                           </div>
-                        )}
-                        <div
-                          className="image-grid grid gap-2"
-                          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridSize}px, 1fr))` }}
-                        >
-                          {sub.entries.map(entry => (
-                            <ImageCard
-                              key={entry.path}
-                              entry={entry}
-                              categories={categories}
-                              selected={entry.path === selectedPath}
-                              isNew={newPaths.has(entry.path)}
-                              onClick={() => setSelectedPath(entry.path)}
-                              onDoubleClick={() => { setSelectedPath(entry.path); setViewMode('focus') }}
-                            />
-                          ))}
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           ) : (
             <div

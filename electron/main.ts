@@ -401,16 +401,24 @@ let classifyRunning = false
 
 function enqueueForClassify(path: string) {
   const entry = db.entries[path]
-  if (!entry || entry.missing || entry.categories.length > 0) return
+  if (!entry || entry.missing) return
+  const hasSubcat = entry.categories.some(id => db.categories[id]?.parentId)
+  if (hasSubcat) return
   if (!classifyQueue.includes(path)) classifyQueue.push(path)
 }
 
-function queueAllUncategorized() {
+function queueAllPendingClassification() {
   for (const entry of Object.values(db.entries)) {
-    enqueueForClassify(entry.path)
+    if (entry.missing) continue
+    const hasParent = entry.categories.some(id => db.categories[id] && !db.categories[id].parentId)
+    const hasChild  = entry.categories.some(id => db.categories[id]?.parentId)
+    // Queue if: no categories at all, OR has parent category but no product subcategory yet
+    if (!hasParent || !hasChild) {
+      if (!classifyQueue.includes(entry.path)) classifyQueue.push(entry.path)
+    }
   }
   if (classifyQueue.length > 0) {
-    console.log(`[Sorter] Queued ${classifyQueue.length} images for auto-classification`)
+    console.log(`[Sorter] Queued ${classifyQueue.length} images for classification`)
     setTimeout(() => processClassifyQueue(), 1500)
   }
 }
@@ -425,7 +433,10 @@ async function processClassifyQueue() {
   while (classifyQueue.length > 0) {
     const path = classifyQueue.shift()!
     const entry = db.entries[path]
-    if (!entry || entry.missing || entry.categories.length > 0) continue
+    if (!entry || entry.missing) continue
+    // Skip only if already has a product subcategory
+    const hasSubcat = entry.categories.some(id => db.categories[id]?.parentId)
+    if (hasSubcat) continue
     try {
       await autoClassifyEntry(entry)
     } catch (e) {
@@ -932,7 +943,7 @@ app.whenReady().then(() => {
   } catch {}
 
   // Queue ALL uncategorized entries (including ones already in DB from previous sessions)
-  queueAllUncategorized()
+  queueAllPendingClassification()
 
   // Background catalog refresh — keeps local cache warm, non-blocking
   refreshCatalog().catch(() => {})
