@@ -18,6 +18,8 @@ interface Props {
   counts: Counts
   categories: Record<string, Category>
   searchRef: React.RefObject<HTMLInputElement>
+  gridSize: number
+  onGridSize: (s: number) => void
 }
 
 const FILTER_TABS: { key: FilterStatus; label: string }[] = [
@@ -44,7 +46,9 @@ const STATUS_COLORS: Record<string, string> = {
   discard: 'border-red-500/50 bg-red-500/5 text-red-400',
 }
 
-export function FilterBar({ filter, onFilter, filterCats, onFilterCats, sort, onSort, search, onSearch, counts, categories, searchRef }: Props) {
+const GRID_SIZES = [120, 160, 220, 300, 400]
+
+export function FilterBar({ filter, onFilter, filterCats, onFilterCats, sort, onSort, search, onSearch, counts, categories, searchRef, gridSize, onGridSize }: Props) {
   const catList = Object.values(categories).filter(c => !c.parentId)
 
   const toggleCat = (id: string) => {
@@ -112,6 +116,46 @@ export function FilterBar({ filter, onFilter, filterCats, onFilterCats, sort, on
             {opt.label}
           </button>
         ))}
+      </div>
+
+      {/* Divider */}
+      <div className="w-px h-4 bg-border flex-shrink-0" />
+
+      {/* Grid zoom */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => { const i = GRID_SIZES.indexOf(gridSize); if (i > 0) onGridSize(GRID_SIZES[i - 1]) }}
+          disabled={gridSize <= GRID_SIZES[0]}
+          className="text-text-muted hover:text-text-secondary disabled:opacity-25 transition-colors"
+          title="Zoom out"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+            <rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+            <rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+            <rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+          </svg>
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={GRID_SIZES.length - 1}
+          step={1}
+          value={GRID_SIZES.indexOf(gridSize)}
+          onChange={e => onGridSize(GRID_SIZES[parseInt(e.target.value)])}
+          className="w-14 h-px accent-accent cursor-pointer"
+          style={{ accentColor: '#E8B547' }}
+        />
+        <button
+          onClick={() => { const i = GRID_SIZES.indexOf(gridSize); if (i < GRID_SIZES.length - 1) onGridSize(GRID_SIZES[i + 1]) }}
+          disabled={gridSize >= GRID_SIZES[GRID_SIZES.length - 1]}
+          className="text-text-muted hover:text-text-secondary disabled:opacity-25 transition-colors"
+          title="Zoom in"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="0.5" y="0.5" width="11" height="11" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+          </svg>
+        </button>
       </div>
 
       {/* Divider */}

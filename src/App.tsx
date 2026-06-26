@@ -90,6 +90,7 @@ export default function App() {
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [focusNote, setFocusNote] = useState(false)
   const [bmpPath, setBmpPath] = useState('')
+  const [gridSize, setGridSize] = useState(160)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Boot
@@ -305,6 +306,8 @@ export default function App() {
     '/': (e) => { e.preventDefault(); searchRef.current?.focus() },
     'i': () => setInspectorOpen(o => !o),
     'I': () => setInspectorOpen(o => !o),
+    '[': () => setGridSize(s => { const sizes = [120,160,220,300,400]; const i = sizes.indexOf(s); return i > 0 ? sizes[i-1] : s }),
+    ']': () => setGridSize(s => { const sizes = [120,160,220,300,400]; const i = sizes.indexOf(s); return i < sizes.length-1 ? sizes[i+1] : s }),
   }, viewMode === 'grid')
 
   return (
@@ -321,6 +324,7 @@ export default function App() {
         counts={counts}
         categories={categories}
         searchRef={searchRef}
+        gridSize={gridSize} onGridSize={setGridSize}
       />
 
       {/* Main */}
@@ -362,7 +366,7 @@ export default function App() {
                         )}
                         <div
                           className="image-grid grid gap-2"
-                          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+                          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridSize}px, 1fr))` }}
                         >
                           {sub.entries.map(entry => (
                             <ImageCard
@@ -385,7 +389,7 @@ export default function App() {
           ) : (
             <div
               className="image-grid grid gap-2"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}
+              style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridSize}px, 1fr))` }}
             >
               {filteredEntries.map(entry => (
                 <ImageCard
