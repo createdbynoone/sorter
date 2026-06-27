@@ -45,19 +45,20 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
     >
       {/* Thumbnail */}
       <div ref={thumbRef as React.RefObject<HTMLDivElement>} className="absolute inset-0 bg-[#141414]">
+        {!src && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-3 h-3 rounded-full border border-border/50 animate-pulse" />
+          </div>
+        )}
         {src && (
           <img
             src={src}
             alt=""
-            loading="lazy"
             decoding="async"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-opacity duration-200"
+            style={{ opacity: 0 }}
+            onLoad={e => { (e.currentTarget as HTMLImageElement).style.opacity = '1' }}
           />
-        )}
-        {!src && (
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="w-4 h-4 rounded-full border border-border animate-pulse" />
-          </div>
         )}
       </div>
 

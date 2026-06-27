@@ -1,32 +1,49 @@
 import { useState, useEffect, useRef } from 'react'
 
-const cache = new Map<string, string>()
+// Module-level shared state — one IPC call per path regardless of how many cards show it
+const urlCache = new Map<string, string>()
+const inflight = new Set<string>()
+const waiters = new Map<string, Set<(url: string) => void>>()
 
-export function useThumbnail(path: string, enabled = true) {
-  const [src, setSrc] = useState<string | null>(cache.get(path) ?? null)
+function fetchThumb(path: string) {
+  if (urlCache.has(path) || inflight.has(path)) return
+  inflight.add(path)
+  window.sorter.getThumbnail(path)
+    .then(url => {
+      inflight.delete(path)
+      if (!url) return
+      urlCache.set(path, url)
+      waiters.get(path)?.forEach(fn => fn(url))
+      waiters.delete(path)
+    })
+    .catch(() => inflight.delete(path))
+}
+
+export function useThumbnail(path: string) {
+  const [src, setSrc] = useState<string | null>(urlCache.get(path) ?? null)
   const ref = useRef<HTMLDivElement | null>(null)
-  const observerRef = useRef<IntersectionObserver | null>(null)
 
   useEffect(() => {
-    if (!enabled || !path) return
-    if (cache.has(path)) { setSrc(cache.get(path)!); return }
+    if (!path) return
+    if (urlCache.has(path)) { setSrc(urlCache.get(path)!); return }
 
-    const el = ref.current
-    if (!el) return
+    const onReady = (url: string) => setSrc(url)
+    if (!waiters.has(path)) waiters.set(path, new Set())
+    waiters.get(path)!.add(onReady)
+    const cleanup = () => waiters.get(path)?.delete(onReady)
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (!entries[0]?.isIntersecting) return
-        observerRef.current?.disconnect()
-        window.sorter.getThumbnail(path).then(url => {
-          if (url) { cache.set(path, url); setSrc(url) }
-        })
-      },
-      { rootMargin: '600px' }
-    )
-    observerRef.current.observe(el)
-    return () => observerRef.current?.disconnect()
-  }, [path, enabled])
+    // No ref yet — load immediately without waiting for intersection
+    if (!ref.current) { fetchThumb(path); return cleanup }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return
+      observer.disconnect()
+      fetchThumb(path)
+    }, { rootMargin: '1500px' })
+    observer.observe(ref.current)
+
+    return () => { observer.disconnect(); cleanup() }
+  }, [path])
 
   return { src, ref }
 }

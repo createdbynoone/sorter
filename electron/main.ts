@@ -712,7 +712,7 @@ function hashStr(s: string): string {
 
 let thumbQueue: Array<{ path: string; resolve: (v: string) => void }> = []
 let activeThumbJobs = 0
-const MAX_THUMB_CONCURRENCY = 4
+const MAX_THUMB_CONCURRENCY = 8
 
 function processThumbQueue() {
   while (activeThumbJobs < MAX_THUMB_CONCURRENCY && thumbQueue.length > 0) {
@@ -1036,6 +1036,13 @@ app.whenReady().then(() => {
 
   // Background catalog refresh — keeps local cache warm, non-blocking
   refreshCatalog().catch(() => {})
+
+  // Pre-warm thumbnail disk cache for all known entries so the grid loads instantly
+  setTimeout(() => {
+    for (const entry of Object.values(db.entries)) {
+      if (!entry.missing) queueThumb(entry.path)
+    }
+  }, 800)
 
   startWatcher()
 })

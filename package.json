@@ -1,6 +1,6 @@
 {
   "name": "sorter",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Sorter — Brotherhood generation triage & organizer",
   "main": "out/main/main.js",
   "type": "module",
