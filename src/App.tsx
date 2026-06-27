@@ -42,12 +42,23 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrash
   onTrashDiscarded: () => void
 }) {
   const shortPath = bmpPath ? bmpPath.replace(/^\/Users\/[^/]+\//, '~/') : ''
-  const handleTrash = () => {
-    if (discardCount === 0) return
-    if (window.confirm(`Move ${discardCount} discarded image${discardCount !== 1 ? 's' : ''} to Trash? This cannot be undone.`)) {
-      onTrashDiscarded()
-    }
+  const [confirming, setConfirming] = useState(false)
+  const cancelTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const startConfirm = () => {
+    setConfirming(true)
+    if (cancelTimer.current) clearTimeout(cancelTimer.current)
+    cancelTimer.current = setTimeout(() => setConfirming(false), 3000)
   }
+  const cancelConfirm = () => {
+    setConfirming(false)
+    if (cancelTimer.current) clearTimeout(cancelTimer.current)
+  }
+  const doTrash = () => {
+    cancelConfirm()
+    onTrashDiscarded()
+  }
+
   return (
     <div className="titlebar-drag flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
       <div className="titlebar-nodrag flex items-center gap-3" style={{ marginLeft: '64px' }}>
@@ -64,15 +75,35 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrash
       <div className="titlebar-nodrag flex items-center gap-2">
         {discardCount > 0 && (
           <>
-            <button
-              onClick={handleTrash}
-              className="text-[11.7px] text-red-400/60 hover:text-red-400 uppercase tracking-widest transition-colors flex items-center gap-1.5"
-            >
-              <svg width="9" height="10" viewBox="0 0 9 10" fill="none">
-                <path d="M1 2.5h7M3.5 2.5V1.5h2V2.5M2 2.5l.5 6h4l.5-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              Trash {discardCount} discarded
-            </button>
+            {!confirming ? (
+              <button
+                onClick={startConfirm}
+                className="text-[11.7px] text-red-400/50 hover:text-red-400 uppercase tracking-widest transition-colors flex items-center gap-1.5"
+              >
+                <svg width="9" height="10" viewBox="0 0 9 10" fill="none">
+                  <path d="M1 2.5h7M3.5 2.5V1.5h2V2.5M2 2.5l.5 6h4l.5-6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Trash {discardCount}
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11.7px] font-mono text-red-400/70 uppercase tracking-widest">
+                  Trash {discardCount}?
+                </span>
+                <button
+                  onClick={doTrash}
+                  className="px-2 py-0.5 rounded bg-red-500/20 border border-red-500/40 text-[11.7px] font-mono text-red-400 hover:bg-red-500/30 transition-colors"
+                >
+                  ✓
+                </button>
+                <button
+                  onClick={cancelConfirm}
+                  className="px-2 py-0.5 rounded bg-surface border border-border text-[11.7px] font-mono text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <span className="text-border">·</span>
           </>
         )}
