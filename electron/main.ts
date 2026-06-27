@@ -982,13 +982,15 @@ ipcMain.handle('sorter:trash-discarded', async () => {
       await execFileAsync('mv', [entry.path, dest], { env: shellEnv() })
       return true
     } catch {
-      // Cross-volume mv can fail on some configs — try osascript as fallback
+      // Cross-volume mv can fail — try osascript as fallback (5s timeout to prevent hang)
       try {
         await execFileAsync('osascript', [
           '-e', `tell application "Finder" to delete POSIX file ${JSON.stringify(entry.path)}`
-        ], { env: shellEnv() })
+        ], { env: shellEnv(), timeout: 5000 })
         return true
-      } catch { return false }
+      } catch {}
+      // Both failed — if the file is already gone (race/external delete), still clean DB
+      return !existsSync(entry.path)
     }
   }
 
