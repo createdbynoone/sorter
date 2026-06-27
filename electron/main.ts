@@ -975,23 +975,31 @@ ipcMain.handle('sorter:trash-discarded', async () => {
   }
 
   const trashOne = async (entry: ImageEntry): Promise<boolean> => {
+    // Primary: shell.trashItem uses NSFileManager.trashItemAtURL — correct for all volumes
+    try {
+      await shell.trashItem(entry.path)
+      return true
+    } catch {}
+
+    // Fallback: mv to volume-correct trash dir
     const filename = entry.path.split('/').pop()!
     const dir = trashDirFor(entry.path)
     const dest = uniqueDest(dir, filename)
     try {
       await execFileAsync('mv', [entry.path, dest], { env: shellEnv() })
       return true
-    } catch {
-      // Cross-volume mv can fail — try osascript as fallback (5s timeout to prevent hang)
-      try {
-        await execFileAsync('osascript', [
-          '-e', `tell application "Finder" to delete POSIX file ${JSON.stringify(entry.path)}`
-        ], { env: shellEnv(), timeout: 5000 })
-        return true
-      } catch {}
-      // Both failed — if the file is already gone (race/external delete), still clean DB
-      return !existsSync(entry.path)
-    }
+    } catch {}
+
+    // Last resort: osascript (5s timeout to prevent hang if Finder is busy)
+    try {
+      await execFileAsync('osascript', [
+        '-e', `tell application "Finder" to delete POSIX file ${JSON.stringify(entry.path)}`
+      ], { env: shellEnv(), timeout: 5000 })
+      return true
+    } catch {}
+
+    // All methods failed — if file is already gone (race/external delete), still clean DB
+    return !existsSync(entry.path)
   }
 
   const BATCH = 8
