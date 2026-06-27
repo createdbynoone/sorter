@@ -939,29 +939,62 @@ ipcMain.handle('sorter:purge-missing', () => {
 })
 
 ipcMain.handle('sorter:trash-discarded', async () => {
-  const discarded = Object.values(db.entries).filter(e => e.status === 'discard' && !e.missing)
-  const trashDir = join(homedir(), '.Trash')
+  const discarded = Object.values(db.entries).filter(e => e.status === 'discard')
+
+  // Remove already-gone entries from DB immediately
+  for (const e of discarded) {
+    if (!existsSync(e.path)) delete db.entries[e.path]
+  }
+
+  const toTrash = discarded.filter(e => existsSync(e.path))
+  if (toTrash.length === 0) { scheduleFlush(); return db }
+
+  // Correct trash directory per volume:
+  // - internal / home drive → ~/.Trash/
+  // - external volume (/Volumes/X/...) → /Volumes/X/.Trashes/<uid>/
+  const uid = process.getuid?.() ?? 501
+  function trashDirFor(filePath: string): string {
+    const m = filePath.match(/^(\/Volumes\/[^/]+)\//)
+    if (m) {
+      const dir = join(m[1], '.Trashes', String(uid))
+      try { mkdirSync(dir, { recursive: true }) } catch {}
+      return dir
+    }
+    return join(homedir(), '.Trash')
+  }
+
+  function uniqueDest(dir: string, filename: string): string {
+    let dest = join(dir, filename)
+    if (!existsSync(dest)) return dest
+    const dot = filename.lastIndexOf('.')
+    const base = dot > 0 ? filename.slice(0, dot) : filename
+    const ext  = dot > 0 ? filename.slice(dot) : ''
+    let n = 1
+    do { dest = join(dir, `${base}_${Date.now()}_${n++}${ext}`) } while (existsSync(dest))
+    return dest
+  }
 
   const trashOne = async (entry: ImageEntry): Promise<boolean> => {
-    if (!existsSync(entry.path)) return true
     const filename = entry.path.split('/').pop()!
-    let dest = join(trashDir, filename)
-    // Resolve name collisions in Trash with a timestamp suffix
-    if (existsSync(dest)) {
-      const dot = filename.lastIndexOf('.')
-      const base = dot > 0 ? filename.slice(0, dot) : filename
-      const ext  = dot > 0 ? filename.slice(dot) : ''
-      dest = join(trashDir, `${base}_${Date.now()}${ext}`)
-    }
+    const dir = trashDirFor(entry.path)
+    const dest = uniqueDest(dir, filename)
     try {
       await execFileAsync('mv', [entry.path, dest], { env: shellEnv() })
       return true
-    } catch { return false }
+    } catch {
+      // Cross-volume mv can fail on some configs — try osascript as fallback
+      try {
+        await execFileAsync('osascript', [
+          '-e', `tell application "Finder" to delete POSIX file ${JSON.stringify(entry.path)}`
+        ], { env: shellEnv() })
+        return true
+      } catch { return false }
+    }
   }
 
   const BATCH = 8
-  for (let i = 0; i < discarded.length; i += BATCH) {
-    const batch = discarded.slice(i, i + BATCH)
+  for (let i = 0; i < toTrash.length; i += BATCH) {
+    const batch = toTrash.slice(i, i + BATCH)
     const results = await Promise.allSettled(batch.map(e => trashOne(e)))
     results.forEach((r, j) => {
       if (r.status === 'fulfilled' && r.value) delete db.entries[batch[j].path]
