@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld('sorter', {
   purgeMissing:      ()                              => ipcRenderer.invoke('sorter:purge-missing'),
   trashDiscarded:    ()                              => ipcRenderer.invoke('sorter:trash-discarded'),
 
+  getWatermarksPath: () => ipcRenderer.invoke('sorter:get-watermarks-path'),
+  readWatermark: (name: string) => ipcRenderer.invoke('sorter:read-watermark', name),
+  saveExports: (files: Array<{ name: string; data: number[] }>) => ipcRenderer.invoke('sorter:save-exports', files),
+
   getVersion: () => ipcRenderer.invoke('get-version'),
 
   onFileAdded:   (cb: (entry: unknown) => void) => {

@@ -5,6 +5,7 @@ import { FocusView } from './components/FocusView'
 import { FilterBar, type SortKey, type FilterStatus } from './components/FilterBar'
 import { DropOverlay } from './components/DropOverlay'
 import { UpdateBar } from './components/UpdateBar'
+import { ExporterPanel } from './components/ExporterPanel'
 import { useKeyboard } from './hooks/useKeyboard'
 import type { ImageEntry, Category, Status, SorterDB } from './env'
 
@@ -149,6 +150,7 @@ export default function App() {
   const [bmpPath, setBmpPath] = useState('')
   const [gridSize, setGridSize] = useState(160)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [exportEntry, setExportEntry] = useState<ImageEntry | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Boot
@@ -544,10 +546,18 @@ export default function App() {
           onOpen={(p) => window.sorter.openExternal(p)}
           onClassify={(p) => window.sorter.classifyImage(p)}
           autoAdvance={autoAdvance}
+          onExport={(e) => setExportEntry(e)}
         />
       )}
 
       <DropOverlay onPaths={handleDropPaths} />
+
+      {exportEntry && (
+        <ExporterPanel
+          entry={exportEntry}
+          onClose={() => setExportEntry(null)}
+        />
+      )}
     </div>
   )
 }

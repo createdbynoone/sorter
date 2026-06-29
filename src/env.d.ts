@@ -47,6 +47,10 @@ interface Window {
     openExternal:   (path: string)                  => Promise<void>
     purgeMissing:      ()                              => Promise<SorterDB>
     trashDiscarded:    ()                              => Promise<SorterDB>
+    getWatermarksPath: () => Promise<string>
+    readWatermark: (name: string) => Promise<string | null>
+    saveExports: (files: Array<{ name: string; data: number[] }>) => Promise<{ ok: boolean; files?: string[]; error?: string }>
+
     getVersion:     ()                              => Promise<string>
     onFileAdded:    (cb: (entry: ImageEntry) => void) => () => void
     onFileRemoved:  (cb: (path: string) => void)      => () => void

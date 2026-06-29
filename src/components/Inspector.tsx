@@ -24,8 +24,18 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
   const [newCatName, setNewCatName] = useState('')
   const [addingCat, setAddingCat] = useState(false)
   const [addingCatParentId, setAddingCatParentId] = useState<string | undefined>(undefined)
+  const [resolution, setResolution] = useState<string>('')
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const newCatRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!entry) { setResolution(''); return }
+    setResolution('')
+    const img = new Image()
+    img.onload = () => setResolution(`${img.naturalWidth} × ${img.naturalHeight}`)
+    img.onerror = () => setResolution('')
+    img.src = `localfile://${entry.path}`
+  }, [entry?.path])
 
   useEffect(() => {
     setNoteValue(entry?.note ?? '')
@@ -81,6 +91,9 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
       {/* File info */}
       <div className="flex flex-col gap-1">
         <p className="text-[11.7px] font-mono text-text-primary break-all leading-relaxed selectable">{filename}</p>
+        {resolution && (
+          <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{resolution} px</span>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11.7px] font-mono text-text-muted">{date}</span>
           <span className="text-[11.7px] font-mono text-text-muted/50 px-1 py-0.5 border border-border rounded">{entry.source}</span>

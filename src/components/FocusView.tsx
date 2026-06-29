@@ -19,16 +19,20 @@ interface Props {
   onOpen: (path: string) => void
   onClassify: (path: string) => void
   autoAdvance: boolean
+  onExport?: (entry: ImageEntry) => void
 }
 
-export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, onClassify, autoAdvance }: Props) {
+export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, onClassify, autoAdvance, onExport }: Props) {
   const entry = entries[index]
   const [focusNote, setFocusNote] = useState(false)
   const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null)
   const imgContainerRef = useRef<HTMLDivElement>(null)
 
-  // Reset zoom on image change
-  useEffect(() => { setZoom(1) }, [index])
+  // Reset zoom and pan on image change
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }) }, [index])
 
   const navigate = useCallback((delta: number) => {
     const next = index + delta
@@ -63,6 +67,8 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
     'N': () => setFocusNote(true),
     'r': () => entry && onReveal(entry.path),
     'R': () => entry && onReveal(entry.path),
+    'e': () => entry && onExport?.(entry),
+    'E': () => entry && onExport?.(entry),
     'Escape': onClose,
   })
 
@@ -75,10 +81,35 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
-      setZoom(z => Math.min(8, Math.max(0.25, z * factor)))
+      setZoom(z => {
+        const next = Math.min(8, Math.max(0.25, z * factor))
+        if (next <= 1) setPan({ x: 0, y: 0 })
+        return next
+      })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  // Pan handlers
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    if (zoom <= 1) return
+    e.preventDefault()
+    dragStart.current = { mx: e.clientX, my: e.clientY, px: pan.x, py: pan.y }
+    setIsDragging(true)
+  }, [zoom, pan])
+
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragStart.current) return
+    setPan({
+      x: dragStart.current.px + (e.clientX - dragStart.current.mx),
+      y: dragStart.current.py + (e.clientY - dragStart.current.my),
+    })
+  }, [])
+
+  const onMouseUp = useCallback(() => {
+    dragStart.current = null
+    setIsDragging(false)
   }, [])
 
   if (!entry) return null
@@ -102,7 +133,7 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
       {/* Main image area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
+        <div className="relative z-10 flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
           <button
             onClick={onClose}
             className="text-[11.7px] font-mono text-text-muted hover:text-text-secondary uppercase tracking-widest transition-colors flex items-center gap-1.5"
@@ -138,29 +169,49 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
           </div>
         </div>
 
-        {/* Image */}
-        <div
-          ref={imgContainerRef}
-          className="flex-1 flex items-center justify-center p-6 min-h-0 relative overflow-hidden"
-          style={{ cursor: zoom !== 1 ? 'zoom-in' : 'default' }}
-          onDoubleClick={() => setZoom(1)}
-        >
-          <img
-            key={entry.path}
-            src={`localfile://${entry.path}`}
-            alt=""
-            className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-200 ${entry.status === 'discard' ? 'opacity-50 grayscale' : ''}`}
-            style={{
-              maxHeight: '100%',
-              transform: `scale(${zoom})`,
-              transformOrigin: 'center center',
-              transition: zoom === 1 ? 'transform 0.15s ease' : 'none',
-            }}
-          />
-          {zoom !== 1 && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-surface/90 border border-border rounded-full px-3 py-1 text-[11.7px] font-mono text-text-secondary pointer-events-none">
-              {Math.round(zoom * 100)}% · doble clic para resetear
-            </div>
+        {/* Image wrapper — flex-1 placeholder keeps layout flow; inner div is absolute so it can't bleed into top/bottom bars */}
+        <div className="flex-1 min-h-0 relative">
+          <div
+            ref={imgContainerRef}
+            className="absolute inset-0 flex items-center justify-center p-6 overflow-hidden"
+            style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+            onDoubleClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseUp}
+          >
+            <img
+              key={entry.path}
+              src={`localfile://${entry.path}`}
+              alt=""
+              draggable={false}
+              className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-200 select-none pointer-events-none ${entry.status === 'discard' ? 'opacity-50 grayscale' : ''}`}
+              style={{
+                maxHeight: '100%',
+                transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+                transformOrigin: 'center center',
+                transition: isDragging ? 'none' : zoom === 1 ? 'transform 0.15s ease' : 'none',
+              }}
+            />
+            {zoom !== 1 && (
+              <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-surface/90 border border-border rounded-full px-3 py-1 text-[11.7px] font-mono text-text-secondary pointer-events-none">
+                {Math.round(zoom * 100)}% · doble clic para resetear
+              </div>
+            )}
+          </div>
+
+          {/* Floating export button — bottom-right of image area */}
+          {onExport && (
+            <button
+              onClick={() => onExport(entry)}
+              className="titlebar-nodrag absolute bottom-5 right-5 z-20 flex items-center gap-2 px-4 py-2 rounded-lg bg-surface/90 border border-border text-[11.7px] font-mono text-text-muted hover:border-accent/50 hover:text-accent hover:bg-surface transition-all uppercase tracking-widest backdrop-blur-sm shadow-lg"
+            >
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                <path d="M5.5 1v7M2 6l3.5 3.5L9 6M1 10h9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Export
+            </button>
           )}
         </div>
 
@@ -172,6 +223,7 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
             { key: 'D', label: 'Discard', color: 'text-red-400' },
             { key: '←→', label: 'Navigate', color: 'text-text-muted' },
             { key: 'N', label: 'Note', color: 'text-text-muted' },
+            { key: 'E', label: 'Export', color: 'text-text-muted' },
             { key: 'Esc', label: 'Grid', color: 'text-text-muted' },
           ].map(({ key, label, color }) => (
             <div key={key} className="flex items-center gap-1">

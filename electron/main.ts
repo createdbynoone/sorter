@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage, protocol, net, dialog, Menu } from 'electron'
-import { join } from 'path'
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, createWriteStream } from 'fs'
+import { join, extname, basename } from 'path'
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, createWriteStream, copyFileSync } from 'fs'
 import { watch as fsWatch } from 'fs'
 import { homedir } from 'os'
 import { execFile } from 'child_process'
@@ -146,6 +146,24 @@ interface SorterDB {
 
 function dbPath(): string { return join(app.getPath('userData'), 'sorter-db.json') }
 function thumbsDir(): string { return join(app.getPath('userData'), 'thumbs') }
+function libraryDir(): string { return join(app.getPath('userData'), 'library') }
+
+function copyToLibrary(srcPath: string): string {
+  const dir = libraryDir()
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const ext = extname(srcPath)
+  const nameBase = basename(srcPath, ext)
+  let destPath = join(dir, basename(srcPath))
+  if (existsSync(destPath)) {
+    const srcSize = statSync(srcPath).size
+    if (statSync(destPath).size === srcSize) return destPath
+    let i = 1
+    while (existsSync(join(dir, `${nameBase}_${i}${ext}`))) i++
+    destPath = join(dir, `${nameBase}_${i}${ext}`)
+  }
+  copyFileSync(srcPath, destPath)
+  return destPath
+}
 
 function loadDB(): SorterDB {
   try {
@@ -688,8 +706,8 @@ function reconcile(diskPaths: string[], source: ImageEntry['source']): ImageEntr
   }
 
   for (const [path, entry] of Object.entries(db.entries)) {
-    if (!seenPaths.has(path) && source === 'desktop') {
-      entry.missing = true
+    if (!seenPaths.has(path) && source === 'desktop' && entry.source === 'desktop') {
+      entry.missing = !existsSync(path)
     }
   }
 
@@ -843,7 +861,12 @@ ipcMain.handle('sorter:import-folder', async () => {
 
 ipcMain.handle('sorter:import-paths', (_event, paths: unknown) => {
   if (!Array.isArray(paths) || paths.length > 2000) return db
-  const files = expandPaths(paths as string[])
+  const rawFiles = expandPaths(paths as string[])
+  const lib = libraryDir()
+  const files = rawFiles.map(p => {
+    const managed = p.startsWith(watchPath) || p.startsWith(lib)
+    return managed ? p : copyToLibrary(p)
+  })
   reconcile(files, 'drop')
   return db
 })
@@ -1015,12 +1038,46 @@ ipcMain.handle('sorter:trash-discarded', async () => {
   return db
 })
 
+// ─── Exporter ─────────────────────────────────────────────────────────────────
+
+function getWatermarksPath(): string {
+  if (app.isPackaged) return join(process.resourcesPath, 'watermarks')
+  return join(__dirname, '../../build/watermarks')
+}
+
+ipcMain.handle('sorter:get-watermarks-path', () => getWatermarksPath())
+
+ipcMain.handle('sorter:read-watermark', (_event, name: unknown) => {
+  if (typeof name !== 'string') return null
+  const p = join(getWatermarksPath(), `${name}.png`)
+  if (!existsSync(p)) return null
+  return `data:image/png;base64,${readFileSync(p).toString('base64')}`
+})
+
+ipcMain.handle('sorter:save-exports', async (_event, files: unknown) => {
+  if (!Array.isArray(files) || files.length === 0) return { ok: false, error: 'No files' }
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory', 'createDirectory'],
+    message: 'Seleccioná la carpeta de destino',
+  })
+  if (result.canceled || !result.filePaths.length) return { ok: false }
+  const outDir = result.filePaths[0]
+  const saved: string[] = []
+  for (const f of files as Array<{ name: string; data: number[] }>) {
+    if (typeof f.name !== 'string' || !Array.isArray(f.data)) continue
+    const p = join(outDir, f.name)
+    writeFileSync(p, Buffer.from(f.data))
+    saved.push(p)
+  }
+  return { ok: true, files: saved }
+})
+
 ipcMain.handle('get-version', () => app.getVersion())
 
 // ─── Window ───────────────────────────────────────────────────────────────────
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'localfile', privileges: { secure: true, supportFetchAPI: true, bypassCSP: true } },
+  { scheme: 'localfile', privileges: { secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } },
 ])
 
 function createWindow(): BrowserWindow {
