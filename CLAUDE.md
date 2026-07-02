@@ -7,8 +7,21 @@ App Electron para triar y organizar renders de BMP. Categoriza automáticamente 
 ```bash
 npm run dev          # dev en puerto 5174
 npm run typecheck    # tsc --noEmit
-GITHUB_TOKEN=... bash scripts/publish.sh  # build + release (arm64 primero, luego x64)
+GH_TOKEN=$(gh auth token) bash scripts/publish.sh  # build + release (arm64 primero, luego x64)
 ```
+
+**Versión actual:** v1.2.1 (2026-07-02)
+
+## Release (electron-builder 26)
+
+El tag DEBE existir en el remoto antes de publicar ("Published releases must have a valid tag" 422):
+```bash
+npm version X.Y.Z --no-git-tag-version
+git add package.json package-lock.json && git commit -m "vX.Y.Z" && git push
+git tag vX.Y.Z && git push origin vX.Y.Z
+GH_TOKEN=$(gh auth token) bash scripts/publish.sh
+```
+Verificar que `latest-mac.yml` esté entre los assets del release — sin él no hay auto-update.
 
 ## Stack
 
@@ -43,8 +56,9 @@ build/
 
 - `TitleBar` tiene clase `titlebar-drag`; elementos interactivos tienen `titlebar-nodrag`
 - Electron calcula `-webkit-app-region` en TODO el DOM sin importar z-index
-- FocusView (`z-40`) NO pone `titlebar-nodrag` en el div raíz — solo en botones específicos
+- **FocusView top bar (v1.2.1):** overlay `fixed inset-0 z-40` cubre el titlebar real, así que su barra superior es `titlebar-drag h-11` con `paddingLeft: 92px` (inset de semáforos); botón Grid y flechas de navegación llevan `titlebar-nodrag`
 - Botón Export flotante: `titlebar-nodrag absolute bottom-5 right-5`
+- Cualquier overlay fullscreen nuevo con contenido arriba-izquierda debe repetir este patrón
 
 ## Protocolo localfile://
 
