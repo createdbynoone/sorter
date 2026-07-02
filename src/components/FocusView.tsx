@@ -133,10 +133,10 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
       {/* Main image area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <div className="relative z-10 flex items-center gap-3 px-5 py-3 border-b border-border flex-shrink-0">
+        <div className="titlebar-drag relative z-10 flex items-center gap-3 pr-5 h-11 border-b border-border flex-shrink-0" style={{ paddingLeft: '92px' }}>
           <button
             onClick={onClose}
-            className="text-[11.7px] font-mono text-text-muted hover:text-text-secondary uppercase tracking-widest transition-colors flex items-center gap-1.5"
+            className="titlebar-nodrag text-[11.7px] font-mono text-text-muted hover:text-text-secondary uppercase tracking-widest transition-colors flex items-center gap-1.5"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M6 2L2 5l4 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -147,7 +147,7 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
           <span className="text-[11.7px] font-mono text-text-secondary truncate flex-1">{filename}</span>
           <StatusBadge status={entry.status} />
           <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{index + 1} / {entries.length}</span>
-          <div className="flex items-center gap-1">
+          <div className="titlebar-nodrag flex items-center gap-1">
             <button
               onClick={() => navigate(-1)}
               disabled={!canPrev}
