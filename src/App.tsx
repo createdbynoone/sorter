@@ -61,8 +61,8 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrash
   }
 
   return (
-    <div className="titlebar-drag flex items-center justify-between px-5 pt-4 pb-3 flex-shrink-0">
-      <div className="titlebar-nodrag flex items-center gap-3" style={{ marginLeft: '64px' }}>
+    <div className="titlebar-drag flex items-center justify-between px-5 h-11 flex-shrink-0">
+      <div className="titlebar-nodrag flex items-center gap-3 translate-y-[1px]" style={{ marginLeft: '72px' }}>
         <span className="font-heading font-bold text-base text-text-primary tracking-[0.15em] uppercase">Sorter</span>
         <span className="text-text-muted text-xs">·</span>
         <span className="text-text-secondary text-xs font-medium tracking-wide">Generation Triage</span>

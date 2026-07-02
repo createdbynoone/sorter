@@ -30,6 +30,7 @@ export interface SorterDB {
 interface Window {
   sorter: {
     getDB:          ()                              => Promise<SorterDB>
+    getPathForFile: (file: File)                    => string
     getBmpPath:     ()                              => Promise<string>
     scanDesktop:    ()                              => Promise<SorterDB>
     importFolder:   ()                              => Promise<SorterDB>

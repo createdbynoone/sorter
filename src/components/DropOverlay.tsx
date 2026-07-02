@@ -28,7 +28,9 @@ export function DropOverlay({ onPaths }: Props) {
     e.preventDefault()
     setDragging(false)
     setCounter(0)
-    const paths = Array.from(e.dataTransfer?.files ?? []).map((f: File) => (f as unknown as { path: string }).path).filter(Boolean)
+    const paths = Array.from(e.dataTransfer?.files ?? []).map((f: File) => {
+      try { return window.sorter.getPathForFile(f) } catch { return '' }
+    }).filter(Boolean)
     if (paths.length) onPaths(paths)
   }, [onPaths])
 

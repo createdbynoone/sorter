@@ -928,7 +928,7 @@ ipcMain.handle('sorter:delete-category', (_event, id: unknown) => {
 })
 
 ipcMain.handle('sorter:get-thumb', (_event, path: unknown) => {
-  if (typeof path !== 'string') return null
+  if (typeof path !== 'string' || !db.entries[path]) return null
   return queueThumb(path)
 })
 
@@ -943,13 +943,15 @@ ipcMain.handle('sorter:classify-image', async (_event, path: unknown) => {
   }
 })
 
+// Only act on files the app actually tracks — an arbitrary path here would
+// let a compromised renderer open/reveal anything on disk
 ipcMain.handle('sorter:reveal', (_event, path: unknown) => {
-  if (typeof path !== 'string') return
+  if (typeof path !== 'string' || !db.entries[path]) return
   shell.showItemInFolder(path)
 })
 
 ipcMain.handle('sorter:open', (_event, path: unknown) => {
-  if (typeof path !== 'string') return
+  if (typeof path !== 'string' || !db.entries[path]) return
   shell.openPath(path)
 })
 
@@ -1094,8 +1096,17 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      zoomFactor: 1.1,
     },
   })
+
+  // webPreferences zoomFactor is unreliable on first load — enforce it
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow?.webContents.setZoomFactor(1.1)
+  })
+
+  mainWindow.webContents.on('will-navigate', e => e.preventDefault())
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)

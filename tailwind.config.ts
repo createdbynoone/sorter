@@ -13,8 +13,8 @@ const config: Config = {
         maybe: '#E8B547',
         discard: '#c5524a',
         'text-primary': '#F0EBE0',
-        'text-secondary': '#666666',
-        'text-muted': '#3d3d3d',
+        'text-secondary': '#9A9A9A',
+        'text-muted': '#666666',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],

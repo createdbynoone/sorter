@@ -1,7 +1,10 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('sorter', {
   getDB:          ()                              => ipcRenderer.invoke('sorter:get-db'),
+  // Electron 32+ removed File.path from the renderer — this resolves the
+  // absolute path of files dragged in from Finder
+  getPathForFile: (file: File)                    => webUtils.getPathForFile(file),
   getBmpPath:     ()                              => ipcRenderer.invoke('sorter:get-bmp-path'),
   scanDesktop:    ()                              => ipcRenderer.invoke('sorter:scan-desktop'),
   importFolder:   ()                              => ipcRenderer.invoke('sorter:import-folder'),
