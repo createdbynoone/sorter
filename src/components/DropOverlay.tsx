@@ -57,7 +57,7 @@ export function DropOverlay({ onPaths }: Props) {
           <path d="M4 24h24" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
         </svg>
         <span className="text-sm font-heading font-semibold uppercase tracking-widest text-accent">Drop to import</span>
-        <span className="text-[11.7px] font-mono text-accent/50">Images or folders</span>
+        <span className="text-[11.7px] font-mono text-accent/50">Images, videos, or folders</span>
       </div>
     </div>
   )

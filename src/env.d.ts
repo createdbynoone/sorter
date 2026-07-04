@@ -44,6 +44,7 @@ interface Window {
     deleteCategory: (id: string)                    => Promise<void>
     classifyImage:  (path: string)                  => Promise<void>
     getThumbnail:   (path: string)                  => Promise<string>
+    dragStart:      (path: string)                  => void
     revealInFinder: (path: string)                  => Promise<void>
     openExternal:   (path: string)                  => Promise<void>
     purgeMissing:      ()                              => Promise<SorterDB>

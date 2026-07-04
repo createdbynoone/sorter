@@ -10,7 +10,7 @@ npm run typecheck    # tsc --noEmit
 GH_TOKEN=$(gh auth token) bash scripts/publish.sh  # build + release (arm64 primero, luego x64)
 ```
 
-**Versión actual:** v1.2.1 (2026-07-02)
+**Versión actual:** v1.3.0 (2026-07-03)
 
 ## Release (electron-builder 26)
 
@@ -65,6 +65,18 @@ build/
 Registrado con `corsEnabled: true` para que canvas no se tinte al cargar imágenes.
 Imágenes en canvas deben usar `img.crossOrigin = 'anonymous'`.
 
+- **`standard: true` es obligatorio** para que `<video>`/`<audio>` funcionen — sin esto Chromium
+  rechaza cualquier respuesta con `MEDIA_ERR_SRC_NOT_SUPPORTED` sin importar los headers
+  (confirmado en Electron 43; ver electron/electron#51442). `stream: true` además, para que el
+  media pipeline espere una respuesta streameada/ranged.
+- Parsing de URL con `standard: true` colapsa las barras iniciales en un componente de
+  autoridad — `localfile:///Volumes/...` parsea "Volumes" como host. Por eso `toLocalFileUrl()`
+  (en `src/utils/media.ts` y espejado en `main.ts`) inserta un host dummy: `localfile://-/Volumes/...`.
+  SIEMPRE usar ese helper para construir URLs `localfile://`, nunca template literals directos.
+- El handler ya NO delega a `net.fetch('file://...')` — ese método ignora el header `Range` y
+  siempre devuelve 200, lo que Chromium interpreta como fuente no soportada para `<video>`.
+  Ahora parsea `Range` manualmente y sirve `206`/`Content-Range` con lectura directa (`readByteRange`).
+
 ## Library (imágenes importadas)
 
 - Drag & drop externo → copia a `userData/library/` antes de reconcile
@@ -88,6 +100,28 @@ Imágenes en canvas deben usar `img.crossOrigin = 'anonymous'`.
 
 - `scripts/publish.sh` — secuencial arm64 → x64 (evita sha512 mismatch por firma paralela)
 - NUNCA `--publish always` directo; siempre usar el script
+
+## Video support (v1.3.0)
+
+- `MEDIA_EXT`/`VIDEO_EXT` (mp4/mov/webm/m4v) — reconoce video en drop, import, watcher (`BMP_PATTERN`)
+- Thumbnail de video = frame real decodificado en una `BrowserWindow` oculta reutilizable
+  (`getThumbWin` + `captureVideoFrame`), NO ffmpeg — un binario nativo por-arch rompería el
+  build cruzado arm64/x64 de `publish.sh`. Requiere `webSecurity: false` en esa ventana oculta
+  (una página `data:` no puede cargar `file://` en un `<video>` si no) y las llamadas se
+  serializan (`videoThumbChain`) porque esa ventana solo decodifica un video a la vez.
+- Frame se escala a max 400px lado largo (igual que thumbs de imagen) — antes se guardaba a
+  resolución nativa del video, inflando el thumb y el ícono de drag-out (ver abajo).
+- Auto-classify usa ese mismo frame extraído — funciona igual que con imágenes.
+- FocusView reproduce con `<video controls autoPlay>`; zoom/pan/export se deshabilitan para video
+  (no aplican). Si falla la decodificación, overlay con "Reveal in Finder" en vez de pantalla negra.
+
+## Drag-out nativo (`sorter:drag-start`)
+
+- `webContents.startDrag({ file, icon })` entrega el archivo ORIGINAL (no copia, calidad completa)
+  a otra app (Finder, BMP, etc.) — icono debe resolverse síncrono porque tiene que dispararse en
+  respuesta directa al gesto `dragstart` del renderer, así que lee el thumb ya cacheado en disco
+  en vez de generarlo on-demand.
+- Icono se re-escala a max 80px — un thumb de 400px como cursor de drag se ve gigante.
 
 ## DB
 

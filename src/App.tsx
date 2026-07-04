@@ -398,7 +398,7 @@ export default function App() {
           {filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <p className="text-[11.7px] text-text-muted font-mono uppercase tracking-[0.2em]">
-                {Object.keys(entries).length === 0 ? 'Drop images or folders · Import · Auto-scans Desktop' : 'No images match filters'}
+                {Object.keys(entries).length === 0 ? 'Drop images, videos, or folders · Import · Auto-scans Desktop' : 'No images match filters'}
               </p>
             </div>
           ) : groupedEntries ? (

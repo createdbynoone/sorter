@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { StatusPill } from './StatusBadge'
 import { RatingDots } from './RatingDots'
+import { isVideoPath, toLocalFileUrl } from '../utils/media'
 import type { ImageEntry, Category, Status } from '../env'
 
 interface Props {
@@ -31,10 +32,21 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
   useEffect(() => {
     if (!entry) { setResolution(''); return }
     setResolution('')
+    if (isVideoPath(entry.path)) {
+      const video = document.createElement('video')
+      video.onloadedmetadata = () => {
+        const mins = Math.floor(video.duration / 60)
+        const secs = Math.round(video.duration % 60).toString().padStart(2, '0')
+        setResolution(`${video.videoWidth} × ${video.videoHeight} · ${mins}:${secs}`)
+      }
+      video.onerror = () => setResolution('')
+      video.src = toLocalFileUrl(entry.path)
+      return
+    }
     const img = new Image()
     img.onload = () => setResolution(`${img.naturalWidth} × ${img.naturalHeight}`)
     img.onerror = () => setResolution('')
-    img.src = `localfile://${entry.path}`
+    img.src = toLocalFileUrl(entry.path)
   }, [entry?.path])
 
   useEffect(() => {
@@ -92,7 +104,7 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
       <div className="flex flex-col gap-1">
         <p className="text-[11.7px] font-mono text-text-primary break-all leading-relaxed selectable">{filename}</p>
         {resolution && (
-          <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{resolution} px</span>
+          <span className="text-[11.7px] font-mono text-text-muted tabular-nums">{resolution}{isVideoPath(entry.path) ? '' : ' px'}</span>
         )}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11.7px] font-mono text-text-muted">{date}</span>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Inspector } from './Inspector'
 import { StatusBadge } from './StatusBadge'
 import { useKeyboard } from '../hooks/useKeyboard'
+import { isVideoPath, toLocalFileUrl } from '../utils/media'
 import type { ImageEntry, Category, Status } from '../env'
 
 interface Props {
@@ -28,11 +29,12 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
+  const [videoError, setVideoError] = useState(false)
   const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null)
   const imgContainerRef = useRef<HTMLDivElement>(null)
 
   // Reset zoom and pan on image change
-  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }) }, [index])
+  useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); setVideoError(false) }, [index])
 
   const navigate = useCallback((delta: number) => {
     const next = index + delta
@@ -67,17 +69,19 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
     'N': () => setFocusNote(true),
     'r': () => entry && onReveal(entry.path),
     'R': () => entry && onReveal(entry.path),
-    'e': () => entry && onExport?.(entry),
-    'E': () => entry && onExport?.(entry),
+    'e': () => entry && !isVideo && onExport?.(entry),
+    'E': () => entry && !isVideo && onExport?.(entry),
     'Escape': onClose,
   })
 
   useEffect(() => { setFocusNote(false) }, [index])
 
+  const isVideo = isVideoPath(entry?.path ?? '')
+
   // Wheel zoom — non-passive so we can preventDefault (stops page scroll)
   useEffect(() => {
     const el = imgContainerRef.current
-    if (!el) return
+    if (!el || isVideo) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
@@ -89,7 +93,7 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [isVideo])
 
   // Pan handlers
   const onMouseDown = useCallback((e: React.MouseEvent) => {
@@ -174,35 +178,59 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
           <div
             ref={imgContainerRef}
             className="absolute inset-0 flex items-center justify-center p-6 overflow-hidden"
-            style={{ cursor: zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
-            onDoubleClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}
-            onMouseDown={onMouseDown}
-            onMouseMove={onMouseMove}
-            onMouseUp={onMouseUp}
-            onMouseLeave={onMouseUp}
+            style={{ cursor: !isVideo && zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+            onDoubleClick={() => { if (!isVideo) { setZoom(1); setPan({ x: 0, y: 0 }) } }}
+            onMouseDown={isVideo ? undefined : onMouseDown}
+            onMouseMove={isVideo ? undefined : onMouseMove}
+            onMouseUp={isVideo ? undefined : onMouseUp}
+            onMouseLeave={isVideo ? undefined : onMouseUp}
           >
-            <img
-              key={entry.path}
-              src={`localfile://${entry.path}`}
-              alt=""
-              draggable={false}
-              className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-200 select-none pointer-events-none ${entry.status === 'discard' ? 'opacity-50 grayscale' : ''}`}
-              style={{
-                maxHeight: '100%',
-                transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-                transformOrigin: 'center center',
-                transition: isDragging ? 'none' : zoom === 1 ? 'transform 0.15s ease' : 'none',
-              }}
-            />
-            {zoom !== 1 && (
+            {isVideo ? (
+              <div key={entry.path} className="relative w-full h-full flex items-center justify-center">
+                <video
+                  src={toLocalFileUrl(entry.path)}
+                  controls
+                  autoPlay
+                  onError={() => setVideoError(true)}
+                  onLoadedData={() => setVideoError(false)}
+                  className={`max-w-full max-h-full object-contain rounded-lg select-none ${entry.status === 'discard' ? 'opacity-50 grayscale' : ''}`}
+                />
+                {videoError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-bg/90 rounded-lg">
+                    <span className="text-[11.7px] font-mono text-text-muted uppercase tracking-widest">No se pudo reproducir el video</span>
+                    <button
+                      onClick={() => onReveal(entry.path)}
+                      className="text-[11.7px] font-mono text-accent hover:text-accent/80 uppercase tracking-widest border border-accent/30 rounded px-3 py-1.5"
+                    >
+                      Reveal in Finder
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <img
+                key={entry.path}
+                src={toLocalFileUrl(entry.path)}
+                alt=""
+                draggable={false}
+                className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-200 select-none pointer-events-none ${entry.status === 'discard' ? 'opacity-50 grayscale' : ''}`}
+                style={{
+                  maxHeight: '100%',
+                  transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
+                  transformOrigin: 'center center',
+                  transition: isDragging ? 'none' : zoom === 1 ? 'transform 0.15s ease' : 'none',
+                }}
+              />
+            )}
+            {!isVideo && zoom !== 1 && (
               <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-surface/90 border border-border rounded-full px-3 py-1 text-[11.7px] font-mono text-text-secondary pointer-events-none">
                 {Math.round(zoom * 100)}% · doble clic para resetear
               </div>
             )}
           </div>
 
-          {/* Floating export button — bottom-right of image area */}
-          {onExport && (
+          {/* Floating export button — bottom-right of image area (video isn't composited by the exporter) */}
+          {onExport && !isVideo && (
             <button
               onClick={() => onExport(entry)}
               className="titlebar-nodrag absolute bottom-5 right-5 z-20 flex items-center gap-2 px-4 py-2 rounded-lg bg-surface/90 border border-border text-[11.7px] font-mono text-text-muted hover:border-accent/50 hover:text-accent hover:bg-surface transition-all uppercase tracking-widest backdrop-blur-sm shadow-lg"
@@ -223,7 +251,7 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
             { key: 'D', label: 'Discard', color: 'text-red-400' },
             { key: '←→', label: 'Navigate', color: 'text-text-muted' },
             { key: 'N', label: 'Note', color: 'text-text-muted' },
-            { key: 'E', label: 'Export', color: 'text-text-muted' },
+            ...(isVideo ? [] : [{ key: 'E', label: 'Export', color: 'text-text-muted' }]),
             { key: 'Esc', label: 'Grid', color: 'text-text-muted' },
           ].map(({ key, label, color }) => (
             <div key={key} className="flex items-center gap-1">

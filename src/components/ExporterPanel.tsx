@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react'
+import { toLocalFileUrl } from '../utils/media'
 import type { ImageEntry } from '../env'
 
 interface Props {
@@ -37,7 +38,7 @@ async function composeJpeg(
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, w, h)
 
-  const src = await loadImg(`localfile://${srcPath}`, true)
+  const src = await loadImg(toLocalFileUrl(srcPath), true)
   const scale = Math.max(w / src.naturalWidth, h / src.naturalHeight)
   const sw = src.naturalWidth * scale
   const sh = src.naturalHeight * scale

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage, protocol, net, dialog, Menu } from 'electron'
 import { join, extname, basename } from 'path'
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, createWriteStream, copyFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, createWriteStream, copyFileSync, openSync, readSync, closeSync } from 'fs'
 import { watch as fsWatch } from 'fs'
 import { homedir } from 'os'
 import { execFile } from 'child_process'
@@ -468,6 +468,11 @@ async function processClassifyQueue() {
 // Prepare image for classification: 1200px max, q90, 'best' resampling.
 // Much more detail than the 400px display thumbnails — text, embroidery, logos are legible.
 async function prepareClassifyImage(path: string): Promise<{ base64: string; mediaType: 'image/jpeg' | 'image/png' }> {
+  if (isVideoPath(path)) {
+    const frame = await generateVideoThumb(path)
+    if (frame && frame.length > 0) return { base64: frame.toString('base64'), mediaType: 'image/jpeg' }
+    throw new Error('Could not extract a frame from video for classification')
+  }
   const isPNG = path.toLowerCase().endsWith('.png')
   const mediaType: 'image/jpeg' | 'image/png' = isPNG ? 'image/png' : 'image/jpeg'
   try {
@@ -639,8 +644,42 @@ function fingerprint(p: string): string {
   } catch { return '' }
 }
 
-const IMAGE_EXT = /\.(jpe?g|png|webp|gif)$/i
-const BMP_PATTERN = /^bmp_.*\.(jpe?g|png|webp)$/i
+const VIDEO_EXT = /\.(mp4|mov|webm|m4v)$/i
+const MEDIA_EXT = /\.(jpe?g|png|webp|gif|mp4|mov|webm|m4v)$/i
+const BMP_PATTERN = /^bmp_.*\.(jpe?g|png|webp|mp4|mov|webm)$/i
+
+function isVideoPath(p: string): boolean {
+  return VIDEO_EXT.test(p)
+}
+
+// localfile is registered `standard: true` (required for <video> to work at all — see
+// protocol.handle below). Standard-scheme URL parsing collapses any number of leading
+// slashes into an authority component, so `localfile:///Volumes/...` would parse "Volumes"
+// as the host. A dummy host segment keeps the real absolute path intact in `url.pathname`.
+function toLocalFileUrl(p: string): string {
+  return `localfile://-${encodeURI(p)}`
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+  '.webp': 'image/webp', '.gif': 'image/gif',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/x-m4v',
+}
+function mimeTypeFor(p: string): string {
+  return MIME_TYPES[extname(p).toLowerCase()] ?? 'application/octet-stream'
+}
+
+function readByteRange(filePath: string, start: number, end: number): Buffer {
+  const fd = openSync(filePath, 'r')
+  try {
+    const len = end - start + 1
+    const buf = Buffer.alloc(len)
+    readSync(fd, buf, 0, len, start)
+    return buf
+  } finally {
+    closeSync(fd)
+  }
+}
 
 function expandPaths(paths: string[]): string[] {
   const results: string[] = []
@@ -649,9 +688,9 @@ function expandPaths(paths: string[]): string[] {
       const s = statSync(p)
       if (s.isDirectory()) {
         readdirSync(p).forEach(f => {
-          if (IMAGE_EXT.test(f)) results.push(join(p, f))
+          if (MEDIA_EXT.test(f)) results.push(join(p, f))
         })
-      } else if (IMAGE_EXT.test(p)) {
+      } else if (MEDIA_EXT.test(p)) {
         results.push(p)
       }
     } catch {}
@@ -742,6 +781,67 @@ function processThumbQueue() {
   }
 }
 
+// Hidden reusable window that decodes a video frame via <video>+<canvas> —
+// avoids bundling a native ffmpeg binary (electron-builder cross-arch build
+// only fetches the host's arch, which would break the arm64/x64 release pipeline).
+let thumbWin: BrowserWindow | null = null
+let videoThumbChain: Promise<unknown> = Promise.resolve()
+
+async function getThumbWin(): Promise<BrowserWindow> {
+  if (thumbWin && !thumbWin.isDestroyed()) return thumbWin
+  // webSecurity: false is required for a data: page to load file:// media —
+  // safe here because this window never navigates and never loads remote content.
+  thumbWin = new BrowserWindow({ show: false, width: 320, height: 400, webPreferences: { sandbox: false, webSecurity: false } })
+  await thumbWin.loadURL('data:text/html,<html><body></body></html>')
+  return thumbWin
+}
+
+async function captureVideoFrame(p: string): Promise<Buffer | null> {
+  try {
+    const win = await getThumbWin()
+    const fileUrl = JSON.stringify('file://' + encodeURI(p))
+    const dataUrl = await win.webContents.executeJavaScript(`(function(){
+      return new Promise((resolve, reject) => {
+        const v = document.createElement('video')
+        v.muted = true
+        v.preload = 'auto'
+        let done = false
+        function capture() {
+          if (done) return
+          done = true
+          try {
+            const w = v.videoWidth || 400
+            const h = v.videoHeight || 500
+            const scale = Math.min(1, 400 / Math.max(w, h))
+            const c = document.createElement('canvas')
+            c.width = Math.round(w * scale)
+            c.height = Math.round(h * scale)
+            c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+            resolve(c.toDataURL('image/jpeg', 0.82))
+          } catch (e) { reject(e) }
+        }
+        v.onloadeddata = () => { try { v.currentTime = Math.min(1, (v.duration || 2) / 3) } catch (e) { capture() } }
+        v.onseeked = capture
+        v.onerror = () => reject(new Error('video decode error'))
+        v.src = ${fileUrl}
+        setTimeout(() => { if (!done) capture() }, 4000)
+      })
+    })()`)
+    if (typeof dataUrl !== 'string' || !dataUrl.includes(',')) return null
+    return Buffer.from(dataUrl.split(',')[1], 'base64')
+  } catch (e) {
+    console.error('[Sorter] video thumb failed:', e)
+    return null
+  }
+}
+
+// Serialized — the hidden window's DOM can only decode one video at a time
+function generateVideoThumb(p: string): Promise<Buffer | null> {
+  const result = videoThumbChain.then(() => captureVideoFrame(p))
+  videoThumbChain = result.catch(() => null)
+  return result
+}
+
 async function generateThumb(p: string): Promise<string> {
   const dir = thumbsDir()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -750,7 +850,16 @@ async function generateThumb(p: string): Promise<string> {
   const key = hashStr(fp || p)
   const cachePath = join(dir, `${key}.jpg`)
 
-  if (existsSync(cachePath)) return `localfile://${cachePath}`
+  if (existsSync(cachePath)) return toLocalFileUrl(cachePath)
+
+  if (isVideoPath(p)) {
+    const frame = await generateVideoThumb(p)
+    if (frame && frame.length > 0) {
+      writeFileSync(cachePath, frame)
+      return toLocalFileUrl(cachePath)
+    }
+    return ''
+  }
 
   try {
     const img = nativeImage.createFromPath(p)
@@ -763,14 +872,14 @@ async function generateThumb(p: string): Promise<string> {
       const jpeg = resized.toJPEG(72)
       if (jpeg.length > 0) {
         writeFileSync(cachePath, jpeg)
-        return `localfile://${cachePath}`
+        return toLocalFileUrl(cachePath)
       }
     }
     const raw = readFileSync(p)
     writeFileSync(cachePath, raw)
-    return `localfile://${cachePath}`
+    return toLocalFileUrl(cachePath)
   } catch {
-    return `localfile://${p}`
+    return toLocalFileUrl(p)
   }
 }
 
@@ -932,6 +1041,25 @@ ipcMain.handle('sorter:get-thumb', (_event, path: unknown) => {
   return queueThumb(path)
 })
 
+// Native OS drag-out — lets the renderer hand a real file (original quality,
+// no copy) to another app's drop target (e.g. dragging a render into BMP).
+// Must resolve the icon synchronously: startDrag has to fire in direct
+// response to the renderer's dragstart gesture, so we read whatever thumbnail
+// is already cached on disk instead of generating one on demand.
+ipcMain.on('sorter:drag-start', (event, path: unknown) => {
+  if (typeof path !== 'string' || !db.entries[path]) return
+  const fp = db.entries[path].fingerprint || fingerprint(path)
+  const thumbPath = join(thumbsDir(), `${hashStr(fp || path)}.jpg`)
+  let icon = existsSync(thumbPath) ? nativeImage.createFromPath(thumbPath) : nativeImage.createEmpty()
+  if (icon.isEmpty()) icon = nativeImage.createFromPath(getIconPath(loadPrefs().iconStyle))
+  if (icon.isEmpty()) return
+  // Drag icon should be a small cursor-following affordance, not a full-size preview
+  const { width, height } = icon.getSize()
+  const scale = Math.min(1, 80 / Math.max(width, height))
+  if (scale < 1) icon = icon.resize({ width: Math.round(width * scale), height: Math.round(height * scale) })
+  event.sender.startDrag({ file: path, icon })
+})
+
 ipcMain.handle('sorter:classify-image', async (_event, path: unknown) => {
   if (typeof path !== 'string' || !db.entries[path]) return
   const entry = db.entries[path]
@@ -1078,8 +1206,13 @@ ipcMain.handle('get-version', () => app.getVersion())
 
 // ─── Window ───────────────────────────────────────────────────────────────────
 
+// `standard: true` is required for <video>/<audio> to work at all through a custom
+// protocol — without it Chromium's media pipeline rejects any response with
+// MEDIA_ERR_SRC_NOT_SUPPORTED regardless of headers (confirmed against Electron 43;
+// see electron/electron#51442). `stream: true` tells <video>/<audio> to expect a
+// streamed/ranged response rather than a single buffered one.
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'localfile', privileges: { secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true } },
+  { scheme: 'localfile', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true, stream: true } },
 ])
 
 function createWindow(): BrowserWindow {
@@ -1104,7 +1237,6 @@ function createWindow(): BrowserWindow {
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow?.webContents.setZoomFactor(1.1)
   })
-
   mainWindow.webContents.on('will-navigate', e => e.preventDefault())
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
@@ -1119,8 +1251,47 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   protocol.handle('localfile', (request) => {
-    const filePath = decodeURIComponent(request.url.slice('localfile://'.length))
-    return net.fetch(`file://${filePath}`)
+    // url.pathname (not naive slicing) — see toLocalFileUrl for why the dummy host exists
+    const filePath = decodeURIComponent(new URL(request.url).pathname)
+    if (!existsSync(filePath)) return new Response('Not found', { status: 404 })
+
+    const stat = statSync(filePath)
+    const mimeType = mimeTypeFor(filePath)
+    const range = request.headers.get('range')
+
+    // net.fetch('file://...') ignores Range entirely and always returns 200 —
+    // Chromium's <video>/<audio> then reject the response outright (error code 4)
+    // since they sent a Range request and got back a non-206. Byte ranges must be
+    // served manually.
+    if (range) {
+      const m = range.match(/^bytes=(\d*)-(\d*)$/)
+      let start = m?.[1] ? parseInt(m[1], 10) : 0
+      let end = m?.[2] ? parseInt(m[2], 10) : stat.size - 1
+      if (m && m[1] === '' && m[2] !== '') {
+        start = Math.max(0, stat.size - parseInt(m[2], 10)) // suffix range: bytes=-500
+        end = stat.size - 1
+      }
+      end = Math.min(end, stat.size - 1)
+      if (start >= stat.size || start > end) {
+        return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } })
+      }
+      const buf = readByteRange(filePath, start, end)
+      return new Response(buf, {
+        status: 206,
+        headers: {
+          'Content-Type': mimeType,
+          'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(buf.length),
+        },
+      })
+    }
+
+    const buf = readByteRange(filePath, 0, stat.size - 1)
+    return new Response(buf, {
+      status: 200,
+      headers: { 'Content-Type': mimeType, 'Accept-Ranges': 'bytes', 'Content-Length': String(buf.length) },
+    })
   })
 
   db = loadDB()
@@ -1158,7 +1329,10 @@ app.whenReady().then(() => {
   startWatcher()
 })
 
-app.on('before-quit', flushDB)
+app.on('before-quit', () => {
+  flushDB()
+  if (thumbWin && !thumbWin.isDestroyed()) thumbWin.destroy()
+})
 app.on('window-all-closed', () => {
   flushDB()
   if (process.platform !== 'darwin') app.quit()

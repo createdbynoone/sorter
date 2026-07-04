@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('sorter', {
   classifyImage:  (path: string)                  => ipcRenderer.invoke('sorter:classify-image', path),
 
   getThumbnail:   (path: string)                  => ipcRenderer.invoke('sorter:get-thumb', path),
+  dragStart:      (path: string)                  => ipcRenderer.send('sorter:drag-start', path),
   revealInFinder: (path: string)                  => ipcRenderer.invoke('sorter:reveal', path),
   openExternal:   (path: string)                  => ipcRenderer.invoke('sorter:open', path),
   purgeMissing:      ()                              => ipcRenderer.invoke('sorter:purge-missing'),

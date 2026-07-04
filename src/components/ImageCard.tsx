@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react'
 import { useThumbnail } from '../hooks/useThumbnail'
 import { StatusBadge } from './StatusBadge'
 import { RatingDots } from './RatingDots'
+import { isVideoPath } from '../utils/media'
 import type { ImageEntry, Category } from '../env'
 
 interface Props {
@@ -18,8 +19,16 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
   const cardRef = useRef<HTMLDivElement>(null)
 
   const isDiscard = entry.status === 'discard'
+  const isVideo = isVideoPath(entry.path)
   const catChips = entry.categories.slice(0, 2).map(id => categories[id]).filter(Boolean)
   const extraCats = entry.categories.length - 2
+
+  // Native OS drag-out — hands the real file (no copy) to another app's drop
+  // target, e.g. dragging a render straight into BMP.
+  const handleDragStart = (e: React.DragEvent) => {
+    e.preventDefault()
+    window.sorter.dragStart(entry.path)
+  }
 
   // Scroll into view when selected
   useEffect(() => {
@@ -31,6 +40,8 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
       ref={cardRef}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      draggable
+      onDragStart={handleDragStart}
       className={`
         relative rounded-lg border overflow-hidden cursor-pointer group
         transition-all duration-150
@@ -61,6 +72,17 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
           />
         )}
       </div>
+
+      {/* Video indicator — centered so it never collides with the hover gradient or category chips */}
+      {isVideo && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="w-9 h-9 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center">
+            <svg width="12" height="12" viewBox="0 0 8 8" fill="currentColor" className="text-white translate-x-px">
+              <path d="M1 1l6 3-6 3V1z" />
+            </svg>
+          </div>
+        </div>
+      )}
 
       {/* Status badge — top right */}
       {entry.status !== 'unsorted' && (
