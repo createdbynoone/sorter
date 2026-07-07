@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 contextBridge.exposeInMainWorld('sorter', {
+  auth: {
+    status:         ()                              => ipcRenderer.invoke('auth:status'),
+    unlock:         (key: string)                    => ipcRenderer.invoke('auth:unlock', key),
+  },
+
   getDB:          ()                              => ipcRenderer.invoke('sorter:get-db'),
   // Electron 32+ removed File.path from the renderer — this resolves the
   // absolute path of files dragged in from Finder

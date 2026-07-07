@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import LockScreen from './components/LockScreen'
 import { ImageCard } from './components/ImageCard'
 import { Inspector } from './components/Inspector'
 import { FocusView } from './components/FocusView'
@@ -153,8 +154,21 @@ export default function App() {
   const [exportEntry, setExportEntry] = useState<ImageEntry | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Boot
+  const [authState, setAuthState] = useState<'checking' | 'locked' | 'unlocked'>('checking')
+  const [lockUntil, setLockUntil] = useState(0)
+
   useEffect(() => {
+    window.sorter.auth.status().then(res => {
+      if (res.locked) { setLockUntil(res.lockUntil); setAuthState('locked') }
+      else setAuthState('unlocked')
+    })
+  }, [])
+
+  // Boot — only once unlocked, so nothing scans the desktop or calls the
+  // classify API before the passphrase has been entered on this machine
+  useEffect(() => {
+    if (authState !== 'unlocked') return
+
     window.sorter.getDB().then(applyDB)
     window.sorter.getVersion().then(setVersion)
     window.sorter.getBmpPath().then(setBmpPath)
@@ -185,7 +199,7 @@ export default function App() {
       })
     })
     return () => { offAdded(); offRemoved(); offClassified() }
-  }, [])
+  }, [authState])
 
   function applyDB(db: SorterDB) {
     setEntries(db.entries)
@@ -375,6 +389,12 @@ export default function App() {
     '[': () => setGridSize(s => { const sizes = [120,160,220,300,400]; const i = sizes.indexOf(s); return i > 0 ? sizes[i-1] : s }),
     ']': () => setGridSize(s => { const sizes = [120,160,220,300,400]; const i = sizes.indexOf(s); return i < sizes.length-1 ? sizes[i+1] : s }),
   }, viewMode === 'grid')
+
+  if (authState === 'checking') return null
+
+  if (authState === 'locked') {
+    return <LockScreen initialLockUntil={lockUntil} onUnlocked={() => setAuthState('unlocked')} />
+  }
 
   return (
     <div className="flex flex-col h-screen bg-bg overflow-hidden">

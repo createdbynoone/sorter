@@ -1,10 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell, nativeImage, protocol, net, dialog, Menu } from 'electron'
-import { join, extname, basename } from 'path'
+import { join, extname, basename, relative, isAbsolute } from 'path'
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, createWriteStream, copyFileSync, openSync, readSync, closeSync } from 'fs'
 import { watch as fsWatch } from 'fs'
 import { homedir } from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
+import { scryptSync, timingSafeEqual } from 'crypto'
 import https from 'https'
 import Anthropic from '@anthropic-ai/sdk'
 import electronUpdater from 'electron-updater'
@@ -196,7 +197,12 @@ function uniqueId(): string {
 const ICON_STYLES = ['Default', 'Dark', 'ClearLight', 'ClearDark', 'TintedLight', 'TintedDark'] as const
 type IconStyle = typeof ICON_STYLES[number]
 
-interface SorterPrefs { iconStyle: IconStyle }
+interface SorterPrefs {
+  iconStyle: IconStyle
+  unlockedAt?: string
+  authFailCount?: number
+  authLockUntil?: number
+}
 
 function prefsPath(): string { return join(app.getPath('userData'), 'sorter-prefs.json') }
 
@@ -210,6 +216,67 @@ function loadPrefs(): SorterPrefs {
 
 function savePrefs(p: SorterPrefs) {
   writeFileSync(prefsPath(), JSON.stringify(p, null, 2), 'utf-8')
+}
+
+// ─── App lock ─────────────────────────────────────────────────────────────────
+// Only the scrypt hash + salt live here — the passphrase itself is never
+// written to source or to the compiled bundle, so reading/decompiling the app
+// cannot recover it directly (only an offline brute-force against the hash).
+const LOCK_SALT_HEX = 'a408bb9b2d0626e6991331a577c0667c'
+const LOCK_HASH_HEX = '1cf870bd6f6b7117010d380b39963553c9bd7d823124c425da30ee0e9a41cef22320427f47e8835dd22465c1b35aa69b69d0ebe84e49f97f753a27c2c4184590'
+const LOCK_HASH = Buffer.from(LOCK_HASH_HEX, 'hex')
+
+let unlocked = false
+
+function verifyPassphrase(attempt: string): boolean {
+  const candidate = scryptSync(attempt, Buffer.from(LOCK_SALT_HEX, 'hex'), 64)
+  return candidate.length === LOCK_HASH.length && timingSafeEqual(candidate, LOCK_HASH)
+}
+
+// Failed attempts + lockout persist across restarts (in prefs) so quitting
+// and relaunching the app can't be used to reset a brute-force cooldown.
+function currentLockout(): number {
+  return loadPrefs().authLockUntil ?? 0
+}
+
+function registerFailedAttempt(): number {
+  const prefs = loadPrefs()
+  const count = (prefs.authFailCount ?? 0) + 1
+  // Exponential backoff after the 3rd bad attempt: 5s, 10s, 20s, 40s ... capped at 5min
+  const lockUntil = count >= 3
+    ? Date.now() + Math.min(5000 * 2 ** (count - 3), 5 * 60 * 1000)
+    : 0
+  savePrefs({ ...prefs, authFailCount: count, authLockUntil: lockUntil })
+  return lockUntil
+}
+
+function clearAuthState(): void {
+  const prefs = loadPrefs()
+  savePrefs({ ...prefs, authFailCount: 0, authLockUntil: 0, unlockedAt: new Date().toISOString() })
+}
+
+function requireUnlocked(): void {
+  if (!unlocked) throw new Error('Locked')
+}
+
+// True only if `abs` resolves inside `root` (prefix startsWith is bypassable
+// by sibling dirs like /thumbs-evil, and doesn't normalize `..`)
+function isInside(root: string, abs: string): boolean {
+  const rel = relative(root, abs)
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+// Every handler below requires the passphrase to have been entered once on
+// this machine — without this, a renderer that skips the LockScreen UI
+// (e.g. via devtools) still can't reach the db, filesystem or Anthropic key.
+function handleWhenUnlocked<Args extends unknown[], R>(
+  channel: string,
+  fn: (event: Electron.IpcMainInvokeEvent, ...args: Args) => R,
+): void {
+  ipcMain.handle(channel, (event, ...args: Args) => {
+    requireUnlocked()
+    return fn(event, ...args)
+  })
 }
 
 function getIconPath(style: string): string {
@@ -939,13 +1006,32 @@ function startWatcher() {
   })
 }
 
+// ─── IPC — Auth (first-run lock screen) ──────────────────────────────────────
+// Reachable even while locked — everything else below is gated on `unlocked`.
+ipcMain.handle('auth:status', () => ({
+  locked: !unlocked,
+  lockUntil: currentLockout(),
+}))
+
+ipcMain.handle('auth:unlock', (_e, attempt: unknown) => {
+  const lockUntil = currentLockout()
+  if (Date.now() < lockUntil) return { ok: false, lockUntil }
+  if (typeof attempt !== 'string' || !verifyPassphrase(attempt)) {
+    return { ok: false, lockUntil: registerFailedAttempt() }
+  }
+  clearAuthState()
+  unlocked = true
+  bootData()
+  return { ok: true, lockUntil: 0 }
+})
+
 // ─── IPC Handlers ─────────────────────────────────────────────────────────────
 
-ipcMain.handle('sorter:get-db', () => db)
+handleWhenUnlocked('sorter:get-db', () => db)
 
-ipcMain.handle('sorter:get-bmp-path', () => watchPath)
+handleWhenUnlocked('sorter:get-bmp-path', () => watchPath)
 
-ipcMain.handle('sorter:scan-desktop', () => {
+handleWhenUnlocked('sorter:scan-desktop', () => {
   watchPath = getBmpOutputPath()
   try {
     const files = readdirSync(watchPath)
@@ -957,7 +1043,7 @@ ipcMain.handle('sorter:scan-desktop', () => {
   return db
 })
 
-ipcMain.handle('sorter:import-folder', async () => {
+handleWhenUnlocked('sorter:import-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory'],
     message: 'Select a folder with generations',
@@ -968,7 +1054,7 @@ ipcMain.handle('sorter:import-folder', async () => {
   return db
 })
 
-ipcMain.handle('sorter:import-paths', (_event, paths: unknown) => {
+handleWhenUnlocked('sorter:import-paths', (_event, paths: unknown) => {
   if (!Array.isArray(paths) || paths.length > 2000) return db
   const rawFiles = expandPaths(paths as string[])
   const lib = libraryDir()
@@ -990,27 +1076,27 @@ function mutateEntry(path: string, fn: (e: ImageEntry) => void): void {
 
 const VALID_STATUSES: Status[] = ['unsorted', 'keep', 'maybe', 'discard']
 
-ipcMain.handle('sorter:set-status', (_event, { path, status }: { path: string; status: Status }) => {
+handleWhenUnlocked('sorter:set-status', (_event, { path, status }: { path: string; status: Status }) => {
   if (typeof path !== 'string' || !VALID_STATUSES.includes(status)) return
   mutateEntry(path, e => { e.status = status })
 })
 
-ipcMain.handle('sorter:set-rating', (_event, { path, rating }: { path: string; rating: number }) => {
+handleWhenUnlocked('sorter:set-rating', (_event, { path, rating }: { path: string; rating: number }) => {
   if (typeof path !== 'string' || typeof rating !== 'number') return
   mutateEntry(path, e => { e.rating = Math.max(0, Math.min(5, Math.round(rating))) })
 })
 
-ipcMain.handle('sorter:set-note', (_event, { path, note }: { path: string; note: string }) => {
+handleWhenUnlocked('sorter:set-note', (_event, { path, note }: { path: string; note: string }) => {
   if (typeof path !== 'string' || typeof note !== 'string' || note.length > 4000) return
   mutateEntry(path, e => { e.note = note })
 })
 
-ipcMain.handle('sorter:set-categories', (_event, { path, ids }: { path: string; ids: string[] }) => {
+handleWhenUnlocked('sorter:set-categories', (_event, { path, ids }: { path: string; ids: string[] }) => {
   if (typeof path !== 'string' || !Array.isArray(ids)) return
   mutateEntry(path, e => { e.categories = ids.filter(id => db.categories[id]) })
 })
 
-ipcMain.handle('sorter:add-category', (_event, { name, color, parentId }: { name: string; color?: string; parentId?: string }) => {
+handleWhenUnlocked('sorter:add-category', (_event, { name, color, parentId }: { name: string; color?: string; parentId?: string }) => {
   if (typeof name !== 'string' || !name.trim() || name.length > 80) return db.categories
   if (parentId && !db.categories[parentId]) return db.categories
   const id = uniqueId()
@@ -1019,13 +1105,13 @@ ipcMain.handle('sorter:add-category', (_event, { name, color, parentId }: { name
   return db.categories
 })
 
-ipcMain.handle('sorter:rename-category', (_event, { id, name }: { id: string; name: string }) => {
+handleWhenUnlocked('sorter:rename-category', (_event, { id, name }: { id: string; name: string }) => {
   if (!db.categories[id] || typeof name !== 'string' || !name.trim()) return
   db.categories[id].name = name.trim()
   scheduleFlush()
 })
 
-ipcMain.handle('sorter:delete-category', (_event, id: unknown) => {
+handleWhenUnlocked('sorter:delete-category', (_event, id: unknown) => {
   if (typeof id !== 'string' || !db.categories[id]) return
   // Collect the target and all its children
   const idsToDelete = new Set([id, ...Object.keys(db.categories).filter(k => db.categories[k].parentId === id)])
@@ -1036,7 +1122,7 @@ ipcMain.handle('sorter:delete-category', (_event, id: unknown) => {
   scheduleFlush()
 })
 
-ipcMain.handle('sorter:get-thumb', (_event, path: unknown) => {
+handleWhenUnlocked('sorter:get-thumb', (_event, path: unknown) => {
   if (typeof path !== 'string' || !db.entries[path]) return null
   return queueThumb(path)
 })
@@ -1060,7 +1146,7 @@ ipcMain.on('sorter:drag-start', (event, path: unknown) => {
   event.sender.startDrag({ file: path, icon })
 })
 
-ipcMain.handle('sorter:classify-image', async (_event, path: unknown) => {
+handleWhenUnlocked('sorter:classify-image', async (_event, path: unknown) => {
   if (typeof path !== 'string' || !db.entries[path]) return
   const entry = db.entries[path]
   entry.categories = [] // reset so classify won't skip
@@ -1073,17 +1159,17 @@ ipcMain.handle('sorter:classify-image', async (_event, path: unknown) => {
 
 // Only act on files the app actually tracks — an arbitrary path here would
 // let a compromised renderer open/reveal anything on disk
-ipcMain.handle('sorter:reveal', (_event, path: unknown) => {
+handleWhenUnlocked('sorter:reveal', (_event, path: unknown) => {
   if (typeof path !== 'string' || !db.entries[path]) return
   shell.showItemInFolder(path)
 })
 
-ipcMain.handle('sorter:open', (_event, path: unknown) => {
+handleWhenUnlocked('sorter:open', (_event, path: unknown) => {
   if (typeof path !== 'string' || !db.entries[path]) return
   shell.openPath(path)
 })
 
-ipcMain.handle('sorter:purge-missing', () => {
+handleWhenUnlocked('sorter:purge-missing', () => {
   for (const [path, entry] of Object.entries(db.entries)) {
     if (entry.missing) delete db.entries[path]
   }
@@ -1091,7 +1177,7 @@ ipcMain.handle('sorter:purge-missing', () => {
   return db
 })
 
-ipcMain.handle('sorter:trash-discarded', async () => {
+handleWhenUnlocked('sorter:trash-discarded', async () => {
   const discarded = Object.values(db.entries).filter(e => e.status === 'discard')
 
   // Remove already-gone entries from DB immediately
@@ -1175,16 +1261,16 @@ function getWatermarksPath(): string {
   return join(__dirname, '../../build/watermarks')
 }
 
-ipcMain.handle('sorter:get-watermarks-path', () => getWatermarksPath())
+handleWhenUnlocked('sorter:get-watermarks-path', () => getWatermarksPath())
 
-ipcMain.handle('sorter:read-watermark', (_event, name: unknown) => {
+handleWhenUnlocked('sorter:read-watermark', (_event, name: unknown) => {
   if (typeof name !== 'string') return null
   const p = join(getWatermarksPath(), `${name}.png`)
   if (!existsSync(p)) return null
   return `data:image/png;base64,${readFileSync(p).toString('base64')}`
 })
 
-ipcMain.handle('sorter:save-exports', async (_event, files: unknown) => {
+handleWhenUnlocked('sorter:save-exports', async (_event, files: unknown) => {
   if (!Array.isArray(files) || files.length === 0) return { ok: false, error: 'No files' }
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openDirectory', 'createDirectory'],
@@ -1202,7 +1288,7 @@ ipcMain.handle('sorter:save-exports', async (_event, files: unknown) => {
   return { ok: true, files: saved }
 })
 
-ipcMain.handle('get-version', () => app.getVersion())
+handleWhenUnlocked('get-version', () => app.getVersion())
 
 // ─── Window ───────────────────────────────────────────────────────────────────
 
@@ -1249,10 +1335,51 @@ function createWindow(): BrowserWindow {
 }
 
 
+// Only serve files this app actually tracks (or its own thumbnail cache) —
+// without this check any renderer code (e.g. a compromised dependency) could
+// fetch `localfile://` for an arbitrary path and read any file on disk that
+// the OS user can access. Gated on `unlocked` too, same as every IPC handler.
+function isServableLocalFile(filePath: string): boolean {
+  if (!unlocked) return false
+  if (db.entries[filePath]) return true
+  return isInside(thumbsDir(), filePath)
+}
+
+// Runs once, right after unlock (or immediately at boot if already unlocked
+// on this machine) — scanning the desktop and calling the Anthropic classify
+// API before authentication would both leak activity and burn API credits
+// on an app nobody has unlocked yet.
+function bootData(): void {
+  db = loadDB()
+  loadLiveCatalog()
+  watchPath = getBmpOutputPath()
+  seedDefaultCategories()
+  initAnthropic()
+
+  try {
+    const files = readdirSync(watchPath)
+      .filter(f => BMP_PATTERN.test(f))
+      .map(f => join(watchPath, f))
+    reconcile(files, 'desktop')
+  } catch {}
+
+  queueAllPendingClassification()
+  refreshCatalog().catch(() => {})
+
+  setTimeout(() => {
+    for (const entry of Object.values(db.entries)) {
+      if (!entry.missing) queueThumb(entry.path)
+    }
+  }, 800)
+
+  startWatcher()
+}
+
 app.whenReady().then(() => {
   protocol.handle('localfile', (request) => {
     // url.pathname (not naive slicing) — see toLocalFileUrl for why the dummy host exists
     const filePath = decodeURIComponent(new URL(request.url).pathname)
+    if (!isServableLocalFile(filePath)) return new Response('Forbidden', { status: 403 })
     if (!existsSync(filePath)) return new Response('Not found', { status: 404 })
 
     const stat = statSync(filePath)
@@ -1294,39 +1421,15 @@ app.whenReady().then(() => {
     })
   })
 
-  db = loadDB()
-  loadLiveCatalog()
-  watchPath = getBmpOutputPath()
-  seedDefaultCategories()
-  initAnthropic()
+  unlocked = Boolean(loadPrefs().unlockedAt)
+
   buildAppMenu()
   applyDockIcon(loadPrefs().iconStyle)
 
   const win = createWindow()
   setupAutoUpdater(win)
 
-  // Initial scan
-  try {
-    const files = readdirSync(watchPath)
-      .filter(f => BMP_PATTERN.test(f))
-      .map(f => join(watchPath, f))
-    reconcile(files, 'desktop')
-  } catch {}
-
-  // Queue ALL uncategorized entries (including ones already in DB from previous sessions)
-  queueAllPendingClassification()
-
-  // Background catalog refresh — keeps local cache warm, non-blocking
-  refreshCatalog().catch(() => {})
-
-  // Pre-warm thumbnail disk cache for all known entries so the grid loads instantly
-  setTimeout(() => {
-    for (const entry of Object.values(db.entries)) {
-      if (!entry.missing) queueThumb(entry.path)
-    }
-  }, 800)
-
-  startWatcher()
+  if (unlocked) bootData()
 })
 
 app.on('before-quit', () => {

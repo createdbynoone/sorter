@@ -10,7 +10,7 @@ npm run typecheck    # tsc --noEmit
 GH_TOKEN=$(gh auth token) bash scripts/publish.sh  # build + release (arm64 primero, luego x64)
 ```
 
-**Versión actual:** v1.3.0 (2026-07-03)
+**Versión actual:** v1.4.0 (2026-07-06)
 
 ## Release (electron-builder 26)
 
@@ -76,6 +76,33 @@ Imágenes en canvas deben usar `img.crossOrigin = 'anonymous'`.
 - El handler ya NO delega a `net.fetch('file://...')` — ese método ignora el header `Range` y
   siempre devuelve 200, lo que Chromium interpreta como fuente no soportada para `<video>`.
   Ahora parsea `Range` manualmente y sirve `206`/`Content-Range` con lectura directa (`readByteRange`).
+- **`isServableLocalFile()` (v1.4.0)** — antes el handler servía CUALQUIER path que existiera en
+  disco, sin containment (vulnerabilidad real: un renderer comprometido podía leer archivos
+  arbitrarios del sistema vía `localfile://`). Ahora solo sirve paths presentes en `db.entries`
+  o dentro de `thumbsDir()`, y exige `unlocked` (ver Lock screen abajo).
+
+## Lock screen (v1.4.0)
+
+- Primer arranque en una máquina pide una passphrase antes de tocar el vault/DB.
+- `electron/main.ts`: solo vive el hash scrypt+salt (`LOCK_SALT_HEX`/`LOCK_HASH_HEX`) — la
+  passphrase en texto plano nunca está en el código ni en el bundle. Verificación con
+  `timingSafeEqual`. Backoff exponencial persistido en `sorter-prefs.json`
+  (`authFailCount`/`authLockUntil`) — reiniciar la app no resetea el cooldown.
+- Una vez correcta, `unlockedAt` queda en prefs y no vuelve a pedirla en esa máquina.
+- **`bootData()`** — todo lo que antes corría sin condición en `app.whenReady()` (scan de
+  Desktop, `initAnthropic()`, clasificación automática, catálogo, watcher) ahora solo corre
+  DESPUÉS de desbloquear — evita escanear el filesystem y gastar créditos de la API de Claude
+  en una app que nadie desbloqueó todavía.
+- Defensa en profundidad: `handleWhenUnlocked()` envuelve todos los IPC `sorter:*` y el
+  protocolo `localfile://` — el backend rechaza aunque alguien salte el `LockScreen.tsx` de la UI.
+- Para regenerar el hash si cambia la passphrase: `node -e "const c=require('crypto');const s=c.randomBytes(16);console.log(s.toString('hex'), c.scryptSync('NUEVA_CLAVE',s,64).toString('hex'))"` y reemplazar `LOCK_SALT_HEX`/`LOCK_HASH_HEX`.
+
+## CSP
+
+`src/index.html` ahora tiene Content-Security-Policy (no existía antes). `img-src`/`media-src`
+incluyen el scheme `localfile:` para que imágenes y video carguen; no hay `connect-src` externo
+porque el renderer nunca hace fetch a dominios remotos (el fetch a brotherhood.com.co y a la API
+de Anthropic corren en el proceso principal, no en el renderer).
 
 ## Library (imágenes importadas)
 

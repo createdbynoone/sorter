@@ -29,6 +29,10 @@ export interface SorterDB {
 
 interface Window {
   sorter: {
+    auth: {
+      status: () => Promise<{ locked: boolean; lockUntil: number }>
+      unlock: (key: string) => Promise<{ ok: boolean; lockUntil: number }>
+    }
     getDB:          ()                              => Promise<SorterDB>
     getPathForFile: (file: File)                    => string
     getBmpPath:     ()                              => Promise<string>
