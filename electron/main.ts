@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeImage, protocol, net, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeImage, protocol, net, dialog, Menu, screen } from 'electron'
 import { join, extname, basename, relative, isAbsolute } from 'path'
 import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync, createWriteStream, copyFileSync, openSync, readSync, closeSync } from 'fs'
 import { watch as fsWatch } from 'fs'
@@ -10,6 +10,14 @@ import https from 'https'
 import Anthropic from '@anthropic-ai/sdk'
 import electronUpdater from 'electron-updater'
 const { autoUpdater } = electronUpdater
+
+// ─── RAM footprint ──────────────────────────────────────────────────────────
+// GPU/hardware acceleration stays ON here (unlike BMP/Product Builder) —
+// FocusView plays real <video autoPlay> for the triage preview, not just the
+// hidden thumbnail-decode window, and software-only decode would make that
+// preview choppier. Only the background-service trimming below applies.
+app.commandLine.appendSwitch('disable-background-networking')
+app.commandLine.appendSwitch('disable-features', 'MediaRouter,OptimizationGuideModelDownloading,Translate')
 
 const execFileAsync = promisify(execFile)
 
@@ -1301,10 +1309,21 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'localfile', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: true, corsEnabled: true, stream: true } },
 ])
 
+// Scales the initial window to the display it opens on instead of a fixed
+// 1100×780, so it looks right from a 13" laptop to an ultrawide/5K monitor.
+// Bounds are chosen so a standard 1920×1080 screen lands ~1100×780 — same as
+// the old hardcoded size — while smaller/larger screens get a proportional
+// window instead of one that's oversized or cramped.
+function initialWindowSize(): { width: number; height: number } {
+  const { width: screenW, height: screenH } = screen.getPrimaryDisplay().workAreaSize
+  const width = Math.round(Math.min(Math.max(screenW * 0.57, 920), 1320))
+  const height = Math.round(Math.min(Math.max(screenH * 0.78, 600), 935))
+  return { width, height }
+}
+
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 780,
+    ...initialWindowSize(),
     minWidth: 920,
     minHeight: 600,
     backgroundColor: '#0c0c0c',
@@ -1315,13 +1334,20 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      zoomFactor: 1.1,
+      // Was 1.1 (+10% UI) — now 0.95 (-5% off native), shrinking the whole
+      // interface a bit further; window sizing above does the screen-adaptive
+      // work a manual zoom hack used to approximate.
+      zoomFactor: 0.95,
+      // Hunspell dictionaries loaded by the spellchecker cost tens of MB for
+      // a couple of short-lived text inputs — not worth it
+      spellcheck: false,
     },
   })
 
-  // webPreferences zoomFactor is unreliable on first load — enforce it
+  // webPreferences zoomFactor is unreliable on first load for non-default
+  // values — enforce it once the page is up
   mainWindow.webContents.on('did-finish-load', () => {
-    mainWindow?.webContents.setZoomFactor(1.1)
+    mainWindow?.webContents.setZoomFactor(0.95)
   })
   mainWindow.webContents.on('will-navigate', e => e.preventDefault())
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

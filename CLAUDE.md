@@ -10,7 +10,7 @@ npm run typecheck    # tsc --noEmit
 GH_TOKEN=$(gh auth token) bash scripts/publish.sh  # build + release (arm64 primero, luego x64)
 ```
 
-**Versión actual:** v1.4.0 (2026-07-06)
+**Versión actual:** v1.4.1 (2026-07-24: background networking de Chromium apagado, spellcheck off, ventana con tamaño dinámico por pantalla vía `initialWindowSize()` y zoomFactor 1.1 → 0.95 — GPU/hardware acceleration se deja intacta a propósito porque FocusView reproduce `<video autoPlay>` real, no solo thumbnails)
 
 ## Release (electron-builder 26)
 
