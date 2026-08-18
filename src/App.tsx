@@ -400,8 +400,8 @@ export default function App() {
       />
 
       {/* Main */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Grid */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Grid — always full width; the Inspector floats on top of it */}
         <div className="flex-1 overflow-y-auto p-3">
           {filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -500,38 +500,47 @@ export default function App() {
           )}
         </div>
 
-        {/* Inspector panel */}
-        {inspectorOpen && (
-          <div className="w-[240px] flex-shrink-0 border-l border-border flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex-shrink-0 flex items-center justify-between">
-              <span className="text-[11.7px] font-heading font-semibold uppercase tracking-widest text-text-secondary">Inspector</span>
-              <button onClick={() => setInspectorOpen(false)} className="text-text-muted hover:text-text-secondary text-xs transition-colors">×</button>
-            </div>
-            <Inspector
-              entry={selectedEntry}
-              categories={categories}
-              onStatus={setStatus}
-              onRating={setRating}
-              onNote={setNote}
-              onCategories={setCats}
-              onAddCategory={addCategory}
-              onReveal={(p) => window.sorter.revealInFinder(p)}
-              onOpen={(p) => window.sorter.openExternal(p)}
-              focusNote={focusNote}
-            />
+        {/* Inspector panel — floats over the grid with a frosted-glass blur, doesn't reflow it.
+            z-20 so it (and its content) always paints above ImageCard's z-10 badges/hover overlay —
+            without an explicit z-index here, those badges (z-10 > the panel's implicit z-auto/0)
+            poked through the blur instead of being covered by it. */}
+        <div
+          className={`absolute top-0 right-0 bottom-0 z-20 w-[260px] border-l border-border bg-surface/80 backdrop-blur-xl shadow-2xl flex flex-col overflow-hidden transition-transform duration-300 ease-out ${
+            inspectorOpen ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          <div className="px-4 py-3 border-b border-border flex-shrink-0 flex items-center justify-between">
+            <span className="text-[11.7px] font-heading font-semibold uppercase tracking-widest text-text-secondary">Inspector</span>
+            <button onClick={() => setInspectorOpen(false)} className="text-text-muted hover:text-text-secondary text-xs transition-colors">×</button>
           </div>
-        )}
+          <Inspector
+            entry={selectedEntry}
+            categories={categories}
+            onStatus={setStatus}
+            onRating={setRating}
+            onNote={setNote}
+            onCategories={setCats}
+            onAddCategory={addCategory}
+            onReveal={(p) => window.sorter.revealInFinder(p)}
+            onOpen={(p) => window.sorter.openExternal(p)}
+            focusNote={focusNote}
+          />
+        </div>
 
-        {/* Inspector toggle when closed */}
-        {!inspectorOpen && (
-          <button
-            onClick={() => setInspectorOpen(true)}
-            className="flex-shrink-0 flex items-center justify-center w-6 border-l border-border bg-surface hover:bg-[#141414] transition-colors"
-            title="Open Inspector (I)"
-          >
-            <span className="text-[11.7px] text-text-muted rotate-90 font-mono tracking-widest uppercase">Inspector</span>
-          </button>
-        )}
+        {/* Inspector toggle — compact floating chevron, not a full-height text tab.
+            Points left (closed → click to bring the panel in) or right (open → click to
+            send it back out), same z-20 stacking as the panel so it never sits under a badge. */}
+        <button
+          onClick={() => setInspectorOpen(o => !o)}
+          title={inspectorOpen ? 'Close Inspector (I)' : 'Open Inspector (I)'}
+          className={`absolute top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-7 h-7 rounded-full border border-border bg-surface/90 backdrop-blur-sm text-text-muted hover:text-text-primary hover:border-[#3d3d3d] shadow-lg transition-[right] duration-300 ease-out ${
+            inspectorOpen ? 'right-[272px]' : 'right-2'
+          }`}
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className={`transition-transform duration-300 ${inspectorOpen ? 'rotate-180' : ''}`}>
+            <path d="M6 1.5L2.5 4.5L6 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
 
       <Footer entries={Object.values(entries)} version={version} />

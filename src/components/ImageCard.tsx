@@ -104,7 +104,7 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
           {entry.rating > 0 && <RatingDots rating={entry.rating} />}
           <div className="flex items-center gap-1 flex-wrap justify-end">
             {catChips.map(cat => (
-              <span key={cat.id} className="text-[11.7px] font-mono text-text-muted border border-border rounded px-1 py-0.5 bg-black/60 truncate max-w-[60px]">
+              <span key={cat.id} className="text-[11.7px] font-mono uppercase text-text-muted border border-border rounded px-1 py-0.5 bg-black/60 truncate max-w-[60px]">
                 {cat.name}
               </span>
             ))}

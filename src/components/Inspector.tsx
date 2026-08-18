@@ -158,73 +158,74 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
           <div className="flex flex-col gap-3">
             {/* Parent categories */}
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11.7px] font-heading font-semibold uppercase tracking-widest text-text-secondary">Category</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[11.7px] font-heading font-semibold uppercase tracking-widest text-text-secondary">Category</span>
+                <button
+                  onClick={() => { setAddingCat(true); setAddingCatParentId(undefined) }}
+                  title="New category"
+                  className="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded border border-dashed border-border text-text-muted hover:border-accent/50 hover:text-accent transition-all duration-150 leading-none"
+                >
+                  +
+                </button>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {parentCats.map(cat => {
                   const active = entry.categories.includes(cat.id)
                   return (
                     <button key={cat.id} onClick={() => toggleCat(cat.id)}
-                      className={`px-2 py-1 rounded-md text-[11.7px] font-mono border transition-all duration-150
+                      className={`px-2 py-1 rounded-md text-[11.7px] font-mono uppercase border transition-all duration-150
                         ${active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}`}>
                       {cat.name}
                     </button>
                   )
                 })}
+                {addingCat && !addingCatParentId && (
+                  <input ref={newCatRef} value={newCatName}
+                    onChange={e => setNewCatName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddCat(); if (e.key === 'Escape') { setAddingCat(false); setNewCatName('') } }}
+                    onBlur={handleAddCat} placeholder="New category..."
+                    className="px-2 py-1 rounded-md text-[11.7px] font-mono border border-accent/40 bg-accent/5 text-text-primary placeholder:text-text-muted focus:outline-none w-28" />
+                )}
               </div>
             </div>
 
             {/* Subcategories — shown under active parent */}
             {activeParentId && (() => {
               const subs = childCats.filter(c => c.parentId === activeParentId).sort((a, b) => a.createdAt - b.createdAt)
-              if (subs.length === 0 && !addingCat) return null
               return (
                 <div className="flex flex-col gap-1.5 pl-2 border-l border-border/50">
-                  <span className="text-[11.7px] font-mono uppercase tracking-widest text-accent/60">Product</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11.7px] font-mono uppercase tracking-widest text-accent/60">Product</span>
+                    <button
+                      onClick={() => { setAddingCat(true); setAddingCatParentId(activeParentId) }}
+                      title="New product"
+                      className="w-4 h-4 flex-shrink-0 flex items-center justify-center rounded border border-dashed border-border/60 text-text-muted hover:border-accent/50 hover:text-accent transition-all duration-150 leading-none"
+                    >
+                      +
+                    </button>
+                  </div>
                   <div className="flex flex-wrap gap-1.5">
                     {subs.map(cat => {
                       const active = activeSubs.includes(cat.id)
                       return (
                         <button key={cat.id} onClick={() => toggleCat(cat.id)}
-                          className={`px-2 py-0.5 rounded text-[11.7px] font-mono border transition-all duration-150
+                          className={`px-2 py-0.5 rounded text-[11.7px] font-mono uppercase border transition-all duration-150
                             ${active ? 'border-accent/40 bg-accent/8 text-accent/80' : 'border-border/60 text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}`}>
                           {cat.name}
                         </button>
                       )
                     })}
-                    {addingCat && addingCatParentId === activeParentId ? (
+                    {addingCat && addingCatParentId === activeParentId && (
                       <input ref={newCatRef} value={newCatName}
                         onChange={e => setNewCatName(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') handleAddCat(); if (e.key === 'Escape') { setAddingCat(false); setNewCatName(''); setAddingCatParentId(undefined) } }}
                         onBlur={handleAddCat} placeholder="New product..."
                         className="px-2 py-0.5 rounded text-[11.7px] font-mono border border-accent/40 bg-accent/5 text-text-primary placeholder:text-text-muted focus:outline-none w-28" />
-                    ) : (
-                      <button onClick={() => { setAddingCat(true); setAddingCatParentId(activeParentId) }}
-                        className="px-2 py-0.5 rounded text-[11.7px] font-mono border border-dashed border-border/60 text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary transition-all duration-150">
-                        + Product
-                      </button>
                     )}
                   </div>
                 </div>
               )
             })()}
-
-            {/* Top-level new category (no parent selected) */}
-            {!activeParentId && (
-              <div className="flex flex-wrap gap-1.5">
-                {addingCat && !addingCatParentId ? (
-                  <input ref={newCatRef} value={newCatName}
-                    onChange={e => setNewCatName(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') handleAddCat(); if (e.key === 'Escape') { setAddingCat(false); setNewCatName('') } }}
-                    onBlur={handleAddCat} placeholder="New category..."
-                    className="px-2 py-1 rounded-md text-[11.7px] font-mono border border-accent/40 bg-accent/5 text-text-primary placeholder:text-text-muted focus:outline-none w-28" />
-                ) : (
-                  <button onClick={() => { setAddingCat(true); setAddingCatParentId(undefined) }}
-                    className="px-2 py-1 rounded-md text-[11.7px] font-mono border border-dashed border-border text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary transition-all duration-150">
-                    + New
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         )
       })()}
