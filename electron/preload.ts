@@ -23,7 +23,6 @@ contextBridge.exposeInMainWorld('sorter', {
   addCategory:    (name: string, parentId?: string, color?: string) => ipcRenderer.invoke('sorter:add-category', { name, parentId, color }),
   renameCategory: (id: string, name: string)      => ipcRenderer.invoke('sorter:rename-category', { id, name }),
   deleteCategory: (id: string)                    => ipcRenderer.invoke('sorter:delete-category', id),
-  classifyImage:  (path: string)                  => ipcRenderer.invoke('sorter:classify-image', path),
 
   getThumbnail:   (path: string)                  => ipcRenderer.invoke('sorter:get-thumb', path),
   dragStart:      (path: string)                  => ipcRenderer.send('sorter:drag-start', path),
@@ -45,10 +44,6 @@ contextBridge.exposeInMainWorld('sorter', {
   onFileRemoved: (cb: (path: string) => void) => {
     ipcRenderer.on('sorter:file-removed', (_e, path) => cb(path))
     return () => ipcRenderer.removeAllListeners('sorter:file-removed')
-  },
-  onClassified: (cb: (entry: unknown) => void) => {
-    ipcRenderer.on('sorter:classified', (_e, entry) => cb(entry))
-    return () => ipcRenderer.removeAllListeners('sorter:classified')
   },
   onUpdateStatus: (cb: (s: unknown) => void) => {
     ipcRenderer.on('update-status', (_e, s) => cb(s))

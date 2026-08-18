@@ -7,7 +7,6 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { scryptSync, timingSafeEqual } from 'crypto'
 import https from 'https'
-import Anthropic from '@anthropic-ai/sdk'
 import electronUpdater from 'electron-updater'
 const { autoUpdater } = electronUpdater
 
@@ -276,7 +275,7 @@ function isInside(root: string, abs: string): boolean {
 
 // Every handler below requires the passphrase to have been entered once on
 // this machine — without this, a renderer that skips the LockScreen UI
-// (e.g. via devtools) still can't reach the db, filesystem or Anthropic key.
+// (e.g. via devtools) still can't reach the db or filesystem.
 function handleWhenUnlocked<Args extends unknown[], R>(
   channel: string,
   fn: (event: Electron.IpcMainInvokeEvent, ...args: Args) => R,
@@ -368,77 +367,6 @@ let watchPath = join(homedir(), 'Desktop') // updated after app.whenReady()
 
 // ─── Brotherhood Default Categories ──────────────────────────────────────────
 
-// Hardcoded seed catalog — merged with live data fetched from brotherhood.com.co
-const BROTHERHOOD_CATALOG_SEED: Record<string, string[]> = {
-  'Fisher Hats':         ['ORIGIN BLACK', 'ORIGIN BEIGE', 'MILITARY GRAY', 'MILITARY GREEN', 'ESSENCE BEIGE', 'ESSENCE BLACK'],
-  'Caps':                ['98 KHAKI TRUCKER CAP', '1998 WHITE', 'BLACK CLOUD', 'BLACK SIDE', 'BLACKOUT', 'BLAME FACES BLACK', 'BLAME FACES GRAY', 'CREATIVE CROWN', 'GREEN FLAMES', 'HEAVEN', 'SUPER PRICE', 'TAG DENIM CAP', 'WHITE CLOUD', 'WHITEOUT'],
-  'Tees':                ['1998 KHAKI OVERSIZED TEE', 'STARS WASHED BLACK OVERSIZED TEE', 'TAG GRAY OVERSIZED TEE'],
-  'Hoodies':             ['1998 GRAY HOODIE'],
-  'Shorts':              ['BEIGE DENIM SHORTS', 'BLACK DENIM SHORTS', 'KHAKI COTTON SHORTS'],
-  'Sweatpants':          ['TAG GRAY SWEATPANTS'],
-  'Jackets':             ['WORKING JACKET BEIGE', 'WORKING JACKET BLACK'],
-  'Cultural Revelations':['BUCKY BEIGE', 'BUCKY BLACK', 'BUCKY GREEN'],
-  'Essentials':          ['BH IDEALS BLACK', 'BH IDEALS WHITE', 'CLASSIC BLACK', 'CLASSIC DOG BLACK', 'CLASSIC DOG WHITE', 'OUTSIDE DOG BLACK'],
-}
-
-// Live catalog — seed + anything fetched from brotherhood.com.co at runtime
-let liveCatalog: Record<string, string[]> = {}
-let catalogRefreshing = false
-let lastCatalogRefresh = 0
-
-function catalogCachePath() { return join(app.getPath('userData'), 'brotherhood-catalog.json') }
-
-function loadLiveCatalog() {
-  // Deep-copy seed so runtime merges don't mutate the const
-  liveCatalog = Object.fromEntries(Object.entries(BROTHERHOOD_CATALOG_SEED).map(([k, v]) => [k, [...v]]))
-  try {
-    const cached = JSON.parse(readFileSync(catalogCachePath(), 'utf-8')) as Record<string, string[]>
-    for (const [cat, products] of Object.entries(cached)) {
-      if (!liveCatalog[cat]) liveCatalog[cat] = []
-      for (const p of products) {
-        if (!liveCatalog[cat].includes(p)) liveCatalog[cat].push(p)
-      }
-    }
-    console.log('[Sorter] Loaded catalog cache')
-  } catch {}
-}
-
-// Fetches /products.json from Brotherhood's Shopify store and merges new products into liveCatalog.
-// Returns true if any new products were added.
-async function refreshCatalog(force = false): Promise<boolean> {
-  if (catalogRefreshing) return false
-  const INTERVAL = 12 * 60 * 60 * 1000 // re-fetch at most every 12h unless forced
-  if (!force && Date.now() - lastCatalogRefresh < INTERVAL) return false
-
-  catalogRefreshing = true
-  try {
-    console.log('[Sorter] Fetching product catalog from brotherhood.com.co...')
-    const res = await net.fetch('https://www.brotherhood.com.co/products.json?limit=250')
-    if (!res.ok) { console.warn(`[Sorter] Catalog fetch failed: HTTP ${res.status}`); return false }
-
-    const json = await res.json() as { products: Array<{ title: string; product_type: string }> }
-    let added = 0
-    for (const product of json.products) {
-      const cat = product.product_type?.trim()
-      if (!cat) continue
-      const name = product.title.trim().toUpperCase()
-      if (!liveCatalog[cat]) liveCatalog[cat] = []
-      if (!liveCatalog[cat].includes(name)) { liveCatalog[cat].push(name); added++ }
-    }
-
-    lastCatalogRefresh = Date.now()
-    writeFileSync(catalogCachePath(), JSON.stringify(liveCatalog, null, 2))
-    if (added > 0) console.log(`[Sorter] Catalog updated: +${added} new products`)
-    else console.log('[Sorter] Catalog up to date')
-    return added > 0
-  } catch (e) {
-    console.warn('[Sorter] Catalog refresh error:', e)
-    return false
-  } finally {
-    catalogRefreshing = false
-  }
-}
-
 const BROTHERHOOD_CATEGORY_NAMES = [
   'Fisher Hats',
   'Caps',
@@ -458,256 +386,6 @@ function seedDefaultCategories() {
     db.categories[id] = { id, name, createdAt: Date.now() }
   }
   scheduleFlush()
-}
-
-// ─── Auto-classification (Claude Haiku vision) ────────────────────────────────
-
-let anthropic: Anthropic | null = null
-
-function initAnthropic() {
-  let apiKey = process.env.ANTHROPIC_API_KEY
-
-  // Fall back to ~/.bmp.env (same source BMP uses)
-  if (!apiKey) {
-    try {
-      const raw = readFileSync(join(homedir(), '.bmp.env'), 'utf-8')
-      const match = raw.match(/^ANTHROPIC_API_KEY=(.+)$/m)
-      if (match) apiKey = match[1].trim()
-    } catch {}
-  }
-
-  if (!apiKey) {
-    console.warn('[Sorter] ANTHROPIC_API_KEY not found in env or ~/.bmp.env — auto-classify disabled')
-    return
-  }
-
-  try {
-    anthropic = new Anthropic({ apiKey })
-    console.log('[Sorter] Anthropic client ready')
-  } catch (e) {
-    console.error('[Sorter] Anthropic init failed:', e)
-  }
-}
-
-const classifyQueue: string[] = []
-let classifyRunning = false
-
-function enqueueForClassify(path: string) {
-  const entry = db.entries[path]
-  if (!entry || entry.missing) return
-  const hasSubcat = entry.categories.some(id => db.categories[id]?.parentId)
-  if (hasSubcat) return
-  if (!classifyQueue.includes(path)) classifyQueue.push(path)
-}
-
-function queueAllPendingClassification() {
-  for (const entry of Object.values(db.entries)) {
-    if (entry.missing) continue
-    const hasParent = entry.categories.some(id => db.categories[id] && !db.categories[id].parentId)
-    const hasChild  = entry.categories.some(id => db.categories[id]?.parentId)
-    // Queue if: no categories at all, OR has parent category but no product subcategory yet
-    if (!hasParent || !hasChild) {
-      if (!classifyQueue.includes(entry.path)) classifyQueue.push(entry.path)
-    }
-  }
-  if (classifyQueue.length > 0) {
-    console.log(`[Sorter] Queued ${classifyQueue.length} images for classification`)
-    setTimeout(() => processClassifyQueue(), 1500)
-  }
-}
-
-async function processClassifyQueue() {
-  if (classifyRunning) return
-  if (classifyQueue.length === 0) return
-  if (!anthropic) { classifyQueue.length = 0; return }
-
-  classifyRunning = true
-  console.log(`[Sorter] Starting classification of ${classifyQueue.length} images`)
-  while (classifyQueue.length > 0) {
-    const path = classifyQueue.shift()!
-    const entry = db.entries[path]
-    if (!entry || entry.missing) continue
-    // Skip only if already has a product subcategory
-    const hasSubcat = entry.categories.some(id => db.categories[id]?.parentId)
-    if (hasSubcat) continue
-    try {
-      await autoClassifyEntry(entry)
-    } catch (e) {
-      console.error(`[Sorter] classify failed for ${path.split('/').pop()}:`, e)
-    }
-  }
-  classifyRunning = false
-  console.log('[Sorter] Classification queue done')
-}
-
-// Prepare image for classification: 1200px max, q90, 'best' resampling.
-// Much more detail than the 400px display thumbnails — text, embroidery, logos are legible.
-async function prepareClassifyImage(path: string): Promise<{ base64: string; mediaType: 'image/jpeg' | 'image/png' }> {
-  if (isVideoPath(path)) {
-    const frame = await generateVideoThumb(path)
-    if (frame && frame.length > 0) return { base64: frame.toString('base64'), mediaType: 'image/jpeg' }
-    throw new Error('Could not extract a frame from video for classification')
-  }
-  const isPNG = path.toLowerCase().endsWith('.png')
-  const mediaType: 'image/jpeg' | 'image/png' = isPNG ? 'image/png' : 'image/jpeg'
-  try {
-    const img = nativeImage.createFromPath(path)
-    if (!img.isEmpty()) {
-      const { width, height } = img.getSize()
-      const MAX = 1200
-      if (Math.max(width, height) > MAX) {
-        const scale = MAX / Math.max(width, height)
-        const resized = img.resize({ width: Math.round(width * scale), height: Math.round(height * scale), quality: 'best' })
-        return { base64: resized.toJPEG(90).toString('base64'), mediaType: 'image/jpeg' }
-      }
-      const bytes = isPNG ? img.toPNG() : img.toJPEG(92)
-      if (bytes.length > 0) return { base64: bytes.toString('base64'), mediaType }
-    }
-  } catch {}
-  return { base64: readFileSync(path).toString('base64'), mediaType }
-}
-
-// Auto-annotate product names with visual keywords so the model has immediate color/style hints.
-function annotateProducts(products: string[]): string {
-  const HINTS: Record<string, string> = {
-    'BLACK': 'black', 'WHITE': 'white', 'GRAY': 'gray', 'GREY': 'gray',
-    'BEIGE': 'beige/cream', 'GREEN': 'green/olive', 'KHAKI': 'khaki/tan',
-    'DENIM': 'denim fabric', 'WASHED': 'washed/distressed',
-    'OVERSIZED': 'oversized fit', 'TRUCKER': 'trucker mesh back',
-    'COTTON': 'cotton', 'WORKING': 'workwear cut',
-    'MILITARY': 'military construction', 'ORIGIN': 'origin Brotherhood design',
-    'ESSENCE': 'minimal/clean construction', 'CLASSIC': 'classic minimal',
-    'FLAMES': 'flame graphic', 'CLOUD': 'cloud graphic', 'STARS': 'star graphic',
-    'BLAME': 'Blame Faces print', 'CREATIVE': 'Creative Crown logo',
-    'HEAVEN': 'Heaven text', 'TAG': 'tag detail', 'SIDE': 'side placement',
-    'DOG': 'dog graphic', 'BUCKY': 'Bucky character', 'IDEALS': 'BH Ideals text',
-    '1998': '1998 retro branding', 'BLACKOUT': 'all-black', 'WHITEOUT': 'all-white',
-  }
-  return products.map((p, i) => {
-    const words = p.toUpperCase().split(/[\s\-_]+/)
-    const seen = new Set<string>()
-    const hints: string[] = []
-    for (const word of words) {
-      for (const [kw, hint] of Object.entries(HINTS)) {
-        if (word.includes(kw) && !seen.has(hint)) { seen.add(hint); hints.push(hint) }
-      }
-    }
-    return hints.length > 0 ? `${i + 1}. ${p}  [${hints.join(', ')}]` : `${i + 1}. ${p}`
-  }).join('\n')
-}
-
-// Step 1: garment type only — Haiku is sufficient (9 options, clear visual distinction)
-async function classifyCategory(base64: string, mediaType: string): Promise<string> {
-  const categoryNames = Object.values(db.categories)
-    .filter(c => !c.parentId)
-    .map(c => `• ${c.name}`)
-    .join('\n')
-  const response = await anthropic!.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 30,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        { type: 'text', text: `What type of Brotherhood garment is shown? Choose exactly one:\n${categoryNames}\n\nReply with exactly:\nCATEGORY: <name from list>` },
-      ]
-    }]
-  })
-  const text = (response.content[0] as { text: string }).text.trim()
-  return text.match(/CATEGORY:\s*(.+)/i)?.[1].trim() ?? ''
-}
-
-// Step 2: specific product — Sonnet 4.6 with chain-of-thought (observe → match).
-// The OBSERVATION line forces the model to analyze the image before committing to a product.
-async function classifyProduct(base64: string, mediaType: string, categoryName: string, products: string[]): Promise<string> {
-  const annotated = annotateProducts(products)
-  const response = await anthropic!.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 120,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-        {
-          type: 'text',
-          text: `You are identifying a specific Brotherhood ${categoryName} from a high-quality streetwear render.\n\nProducts (pick exactly one):\n${annotated}\n\nAnalyze the render carefully:\n• Primary and secondary colorway (exact shade)\n• Construction and silhouette details\n• Any visible text, embroidery, logos, patches, or graphic prints\n• Fabric texture, stitching, material finish\n\nFirst describe what you observe, then pick.\nReply with exactly:\nOBSERVATION: <one sentence about the key visual characteristics>\nPRODUCT: <exact name from the numbered list above>`,
-        },
-      ]
-    }]
-  })
-  const text = (response.content[0] as { text: string }).text.trim()
-  const obs = text.match(/OBSERVATION:\s*(.+)/i)?.[1]?.trim()
-  if (obs) console.log(`[Sorter] vision: ${obs}`)
-  return text.match(/PRODUCT:\s*(.+)/i)?.[1].trim() ?? ''
-}
-
-async function autoClassifyEntry(entry: ImageEntry): Promise<void> {
-  if (!anthropic) return
-
-  // Use high-detail image for both steps — NOT the 400px display thumbnail
-  generateThumb(entry.path).catch(() => {}) // warm display cache in background
-  const { base64, mediaType } = await prepareClassifyImage(entry.path)
-  const ignore = new Set(['other', 'unknown', 'n/a', 'none', ''])
-
-  // ── Step 1: category ──────────────────────────────────────────────────────
-  const typeStr = await classifyCategory(base64, mediaType)
-  console.log(`[Sorter] ${entry.path.split('/').pop()} → category:"${typeStr}"`)
-
-  const parentPair = Object.entries(db.categories).find(([_, c]) =>
-    !c.parentId && (
-      c.name.toLowerCase() === typeStr.toLowerCase() ||
-      typeStr.toLowerCase().startsWith(c.name.toLowerCase()) ||
-      c.name.toLowerCase().startsWith(typeStr.toLowerCase())
-    )
-  )
-  if (!parentPair) return
-
-  const [parentId, parentCat] = parentPair
-  const catIds = [parentId]
-
-  let products = liveCatalog[parentCat.name] ?? []
-  if (products.length === 0) { await refreshCatalog(true); products = liveCatalog[parentCat.name] ?? [] }
-  if (products.length === 0) {
-    mutateEntry(entry.path, e => { e.categories = catIds })
-    mainWindow?.webContents.send('sorter:classified', db.entries[entry.path])
-    return
-  }
-
-  // ── Step 2: product (Sonnet 4.6, annotated list, chain-of-thought) ────────
-  const prodStr = await classifyProduct(base64, mediaType, parentCat.name, products)
-  console.log(`[Sorter] ${entry.path.split('/').pop()} → product:"${prodStr}"`)
-
-  const findMatch = (s: string, list: string[]) => list.find(p => p.toLowerCase() === s.toLowerCase())
-  let catalogMatch = !ignore.has(prodStr.toLowerCase()) ? findMatch(prodStr, products) : undefined
-
-  if (!catalogMatch && !ignore.has(prodStr.toLowerCase())) {
-    const hadNew = await refreshCatalog(true)
-    if (hadNew) {
-      const updated = liveCatalog[parentCat.name] ?? []
-      catalogMatch = findMatch(prodStr, updated)
-      if (!catalogMatch && updated.length > 0) {
-        const retry = await classifyProduct(base64, mediaType, parentCat.name, updated)
-        console.log(`[Sorter] ${entry.path.split('/').pop()} → retry:"${retry}"`)
-        catalogMatch = !ignore.has(retry.toLowerCase()) ? findMatch(retry, updated) : undefined
-      }
-    }
-  }
-
-  if (catalogMatch) {
-    const normName = catalogMatch.toLowerCase()
-    const existingSub = Object.entries(db.categories).find(([_, c]) =>
-      c.parentId === parentId && c.name.toLowerCase() === normName
-    )
-    const subId = existingSub?.[0] ?? (() => {
-      const id = uniqueId()
-      db.categories[id] = { id, name: catalogMatch!, parentId, createdAt: Date.now() }
-      return id
-    })()
-    catIds.push(subId)
-  }
-
-  mutateEntry(entry.path, e => { e.categories = catIds })
-  mainWindow?.webContents.send('sorter:classified', db.entries[entry.path])
 }
 
 // ─── Fingerprint & Reconciliation ─────────────────────────────────────────────
@@ -826,10 +504,6 @@ function reconcile(diskPaths: string[], source: ImageEntry['source']): ImageEntr
   }
 
   scheduleFlush()
-
-  // Queue new entries for background classification
-  for (const entry of newEntries) enqueueForClassify(entry.path)
-  if (newEntries.length > 0) setTimeout(() => processClassifyQueue(), 800)
 
   return newEntries
 }
@@ -1000,8 +674,6 @@ function startWatcher() {
             const newEntries = reconcile([fullPath], 'desktop')
             if (newEntries.length > 0) {
               mainWindow?.webContents.send('sorter:file-added', newEntries[0])
-              enqueueForClassify(fullPath)
-              setTimeout(() => processClassifyQueue(), 800)
             }
           } else {
             prev = size
@@ -1152,17 +824,6 @@ ipcMain.on('sorter:drag-start', (event, path: unknown) => {
   const scale = Math.min(1, 80 / Math.max(width, height))
   if (scale < 1) icon = icon.resize({ width: Math.round(width * scale), height: Math.round(height * scale) })
   event.sender.startDrag({ file: path, icon })
-})
-
-handleWhenUnlocked('sorter:classify-image', async (_event, path: unknown) => {
-  if (typeof path !== 'string' || !db.entries[path]) return
-  const entry = db.entries[path]
-  entry.categories = [] // reset so classify won't skip
-  try {
-    await autoClassifyEntry(entry)
-  } catch (e) {
-    console.error('[Sorter] Manual classify failed:', e)
-  }
 })
 
 // Only act on files the app actually tracks — an arbitrary path here would
@@ -1372,15 +1033,12 @@ function isServableLocalFile(filePath: string): boolean {
 }
 
 // Runs once, right after unlock (or immediately at boot if already unlocked
-// on this machine) — scanning the desktop and calling the Anthropic classify
-// API before authentication would both leak activity and burn API credits
-// on an app nobody has unlocked yet.
+// on this machine) — scanning the desktop before authentication would leak
+// activity on an app nobody has unlocked yet.
 function bootData(): void {
   db = loadDB()
-  loadLiveCatalog()
   watchPath = getBmpOutputPath()
   seedDefaultCategories()
-  initAnthropic()
 
   try {
     const files = readdirSync(watchPath)
@@ -1388,9 +1046,6 @@ function bootData(): void {
       .map(f => join(watchPath, f))
     reconcile(files, 'desktop')
   } catch {}
-
-  queueAllPendingClassification()
-  refreshCatalog().catch(() => {})
 
   setTimeout(() => {
     for (const entry of Object.values(db.entries)) {

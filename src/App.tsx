@@ -164,8 +164,8 @@ export default function App() {
     })
   }, [])
 
-  // Boot — only once unlocked, so nothing scans the desktop or calls the
-  // classify API before the passphrase has been entered on this machine
+  // Boot — only once unlocked, so nothing scans the desktop before the
+  // passphrase has been entered on this machine
   useEffect(() => {
     if (authState !== 'unlocked') return
 
@@ -186,19 +186,7 @@ export default function App() {
         return next
       })
     })
-    const offClassified = window.sorter.onClassified((entry) => {
-      setEntries(prev => ({ ...prev, [entry.path]: entry }))
-      setCategories(prev => {
-        // If a new category was created during auto-classify, refetch categories
-        const catIds = entry.categories
-        const unknownCat = catIds.some(id => !prev[id])
-        if (unknownCat) {
-          window.sorter.getDB().then(db => setCategories(db.categories))
-        }
-        return prev
-      })
-    })
-    return () => { offAdded(); offRemoved(); offClassified() }
+    return () => { offAdded(); offRemoved() }
   }, [authState])
 
   function applyDB(db: SorterDB) {
@@ -529,7 +517,6 @@ export default function App() {
               onAddCategory={addCategory}
               onReveal={(p) => window.sorter.revealInFinder(p)}
               onOpen={(p) => window.sorter.openExternal(p)}
-              onClassify={(p) => window.sorter.classifyImage(p)}
               focusNote={focusNote}
             />
           </div>
@@ -564,7 +551,6 @@ export default function App() {
           onAddCategory={addCategory}
           onReveal={(p) => window.sorter.revealInFinder(p)}
           onOpen={(p) => window.sorter.openExternal(p)}
-          onClassify={(p) => window.sorter.classifyImage(p)}
           autoAdvance={autoAdvance}
           onExport={(e) => setExportEntry(e)}
         />

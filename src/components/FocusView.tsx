@@ -18,12 +18,11 @@ interface Props {
   onAddCategory: (name: string) => void
   onReveal: (path: string) => void
   onOpen: (path: string) => void
-  onClassify: (path: string) => void
   autoAdvance: boolean
   onExport?: (entry: ImageEntry) => void
 }
 
-export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, onClassify, autoAdvance, onExport }: Props) {
+export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, autoAdvance, onExport }: Props) {
   const entry = entries[index]
   const [focusNote, setFocusNote] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -284,7 +283,6 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
           onAddCategory={onAddCategory}
           onReveal={onReveal}
           onOpen={onOpen}
-          onClassify={onClassify}
           focusNote={focusNote}
         />
       </div>

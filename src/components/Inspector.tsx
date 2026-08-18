@@ -14,13 +14,12 @@ interface Props {
   onAddCategory: (name: string, parentId?: string) => void
   onReveal: (path: string) => void
   onOpen: (path: string) => void
-  onClassify?: (path: string) => void
   focusNote?: boolean
 }
 
 const STATUSES: Status[] = ['keep', 'maybe', 'discard', 'unsorted']
 
-export function Inspector({ entry, categories, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, onClassify, focusNote }: Props) {
+export function Inspector({ entry, categories, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, focusNote }: Props) {
   const [noteValue, setNoteValue] = useState('')
   const [newCatName, setNewCatName] = useState('')
   const [addingCat, setAddingCat] = useState(false)
@@ -252,18 +251,6 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
           </svg>
           Open in Preview
         </button>
-        {onClassify && (
-          <button
-            onClick={() => onClassify(entry.path)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-accent/25 text-[11.7px] font-heading font-semibold uppercase tracking-widest text-accent/60 hover:border-accent/50 hover:text-accent transition-all duration-150"
-          >
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-              <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" strokeWidth="1.1"/>
-              <path d="M3.5 5.5l1.5 1.5 2.5-2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-            Auto-classify
-          </button>
-        )}
       </div>
     </div>
   )
