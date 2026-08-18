@@ -17,7 +17,7 @@ interface Props {
   focusNote?: boolean
 }
 
-const STATUSES: Status[] = ['keep', 'maybe', 'discard', 'unsorted']
+const STATUSES: Status[] = ['keep', 'maybe', 'discard', 'archived', 'unsorted']
 
 export function Inspector({ entry, categories, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, focusNote }: Props) {
   const [noteValue, setNoteValue] = useState('')

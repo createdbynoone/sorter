@@ -1,4 +1,4 @@
-export type Status = 'unsorted' | 'keep' | 'maybe' | 'discard'
+export type Status = 'unsorted' | 'keep' | 'maybe' | 'discard' | 'archived'
 
 export interface ImageEntry {
   path: string
@@ -35,7 +35,6 @@ interface Window {
     }
     getDB:          ()                              => Promise<SorterDB>
     getPathForFile: (file: File)                    => string
-    getBmpPath:     ()                              => Promise<string>
     scanDesktop:    ()                              => Promise<SorterDB>
     importFolder:   ()                              => Promise<SorterDB>
     importPaths:    (paths: string[])               => Promise<SorterDB>

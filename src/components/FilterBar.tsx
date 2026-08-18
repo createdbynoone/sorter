@@ -4,7 +4,7 @@ import type { Status } from '../env'
 export type SortKey = 'newest' | 'oldest' | 'status' | 'rating' | 'name'
 export type FilterStatus = Status | 'all'
 
-interface Counts { all: number; unsorted: number; keep: number; maybe: number; discard: number }
+interface Counts { all: number; unsorted: number; keep: number; maybe: number; discard: number; archived: number }
 
 interface Props {
   filter: FilterStatus
@@ -25,6 +25,7 @@ const FILTER_TABS: { key: FilterStatus; label: string }[] = [
   { key: 'keep', label: 'Keep' },
   { key: 'maybe', label: 'Maybe' },
   { key: 'discard', label: 'Discard' },
+  { key: 'archived', label: 'Archived' },
 ]
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -41,6 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
   keep: 'border-[#5bb98c]/60 bg-[#5bb98c]/10 text-[#5bb98c]',
   maybe: 'border-[#E8B547]/60 bg-[#E8B547]/10 text-[#E8B547]',
   discard: 'border-red-500/50 bg-red-500/5 text-red-400',
+  archived: 'border-[#6b8fb5]/60 bg-[#6b8fb5]/10 text-[#6b8fb5]',
 }
 
 const GRID_SIZES = [120, 160, 220, 300, 400]

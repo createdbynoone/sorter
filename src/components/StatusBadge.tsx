@@ -3,13 +3,14 @@ import type { Status } from '../env'
 
 interface Props { status: Status; size?: 'sm' | 'xs' }
 
-const LABELS: Record<Status, string> = { keep: 'K', maybe: 'M', discard: 'D', unsorted: '·' }
+const LABELS: Record<Status, string> = { keep: 'K', maybe: 'M', discard: 'D', unsorted: '·', archived: 'A' }
 
 const STYLES: Record<Status, string> = {
   keep:     'border-[#E8B547] text-[#E8B547] bg-[#E8B547]/10',
   maybe:    'border-[#E8B547]/40 text-[#E8B547]/60 bg-transparent',
   discard:  'border-red-500/50 text-red-400/80 bg-red-500/5',
   unsorted: 'border-border text-text-muted bg-transparent',
+  archived: 'border-[#6b8fb5]/50 text-[#6b8fb5]/80 bg-[#6b8fb5]/5',
 }
 
 export function StatusBadge({ status, size = 'sm' }: Props) {
@@ -30,8 +31,9 @@ export function StatusPill({ status, active, onClick }: { status: Status; active
     maybe:    active ? 'border-[#E8B547]/70 bg-[#E8B547]/10 text-[#E8B547]' : 'border-border text-text-muted hover:border-[#E8B547]/40 hover:text-[#E8B547]/70',
     discard:  active ? 'border-red-500/50 bg-red-500/5 text-red-400' : 'border-border text-text-muted hover:border-red-500/30 hover:text-red-400/70',
     unsorted: active ? 'border-white/30 bg-white/5 text-text-primary' : 'border-border text-text-muted hover:border-white/20 hover:text-text-secondary',
+    archived: active ? 'border-[#6b8fb5]/70 bg-[#6b8fb5]/10 text-[#6b8fb5]' : 'border-border text-text-muted hover:border-[#6b8fb5]/40 hover:text-[#6b8fb5]/70',
   }
-  const labels: Record<Status, string> = { keep: 'Keep', maybe: 'Maybe', discard: 'Discard', unsorted: 'Unsorted' }
+  const labels: Record<Status, string> = { keep: 'Keep', maybe: 'Maybe', discard: 'Discard', unsorted: 'Unsorted', archived: 'Archived' }
   return (
     <button onClick={onClick} className={`${base} ${styles[status]}`}>{labels[status]}</button>
   )

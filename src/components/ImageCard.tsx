@@ -12,13 +12,15 @@ interface Props {
   isNew?: boolean
   onClick: () => void
   onDoubleClick: () => void
+  onContextMenu: (e: React.MouseEvent) => void
 }
 
-export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubleClick }: Props) {
+export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubleClick, onContextMenu }: Props) {
   const { src, ref: thumbRef } = useThumbnail(entry.path)
   const cardRef = useRef<HTMLDivElement>(null)
 
   const isDiscard = entry.status === 'discard'
+  const isArchived = entry.status === 'archived'
   const isVideo = isVideoPath(entry.path)
   const catChips = entry.categories.slice(0, 2).map(id => categories[id]).filter(Boolean)
   const extraCats = entry.categories.length - 2
@@ -40,6 +42,7 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
       ref={cardRef}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
       draggable
       onDragStart={handleDragStart}
       className={`
@@ -51,6 +54,7 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
           : 'border-border hover:border-[#3d3d3d]'
         }
         ${isDiscard ? 'opacity-40 grayscale' : ''}
+        ${isArchived ? 'opacity-60' : ''}
       `}
       style={{ aspectRatio: '4/5' }}
     >

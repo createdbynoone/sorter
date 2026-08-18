@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import LockScreen from './components/LockScreen'
 import { ImageCard } from './components/ImageCard'
+import { ContextMenu } from './components/ContextMenu'
 import { Inspector } from './components/Inspector'
 import { FocusView } from './components/FocusView'
 import { FilterBar, type SortKey, type FilterStatus } from './components/FilterBar'
@@ -14,7 +15,7 @@ import type { ImageEntry, Category, Status, SorterDB } from './env'
 
 function Footer({ entries, version }: { entries: ImageEntry[]; version: string }) {
   const counts = useMemo(() => {
-    const c = { keep: 0, maybe: 0, discard: 0, unsorted: 0 }
+    const c = { keep: 0, maybe: 0, discard: 0, unsorted: 0, archived: 0 }
     for (const e of entries) c[e.status]++
     return c
   }, [entries])
@@ -27,6 +28,7 @@ function Footer({ entries, version }: { entries: ImageEntry[]; version: string }
         {counts.maybe > 0 && <> · <span className="text-[#E8B547]/70">~ {counts.maybe} maybe</span></>}
         {counts.discard > 0 && <> · <span className="text-red-400/60">✕ {counts.discard} discard</span></>}
         {counts.unsorted > 0 && <> · <span className="text-text-muted">· {counts.unsorted} unsorted</span></>}
+        {counts.archived > 0 && <> · <span className="text-[#6b8fb5]/70">⬒ {counts.archived} archived</span></>}
       </span>
       <span className="text-[11.7px] text-text-muted font-mono">Sorter {version && `v${version}`}</span>
     </div>
@@ -35,15 +37,13 @@ function Footer({ entries, version }: { entries: ImageEntry[]; version: string }
 
 // ─── TitleBar ─────────────────────────────────────────────────────────────────
 
-function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrashDiscarded }: {
+function TitleBar({ onImport, onRescan, scanning, discardCount, onTrashDiscarded }: {
   onImport: () => void
   onRescan: () => void
   scanning: boolean
-  bmpPath: string
   discardCount: number
   onTrashDiscarded: () => void
 }) {
-  const shortPath = bmpPath ? bmpPath.replace(/^\/Users\/[^/]+\//, '~/') : ''
   const [confirming, setConfirming] = useState(false)
   const cancelTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -67,12 +67,6 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrash
         <span className="flex-shrink-0 font-heading font-bold text-base text-text-primary tracking-[0.15em] uppercase">Sorter</span>
         <span className="flex-shrink-0 text-text-muted text-xs hidden sm:inline">·</span>
         <span className="flex-shrink-0 text-text-secondary text-xs font-medium tracking-wide whitespace-nowrap hidden sm:inline">Generation Triage</span>
-        {shortPath && (
-          <>
-            <span className="flex-shrink-0 text-border text-xs hidden md:inline">·</span>
-            <span className="text-[11.7px] font-mono text-text-muted/60 truncate max-w-[280px] hidden md:inline" title={bmpPath}>{shortPath}</span>
-          </>
-        )}
       </div>
       <div className="titlebar-nodrag flex items-center gap-2 flex-shrink-0">
         {discardCount > 0 && (
@@ -148,10 +142,10 @@ export default function App() {
   const [newPaths, setNewPaths] = useState<Set<string>>(new Set())
   const [inspectorOpen, setInspectorOpen] = useState(true)
   const [focusNote, setFocusNote] = useState(false)
-  const [bmpPath, setBmpPath] = useState('')
   const [gridSize, setGridSize] = useState(160)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [exportEntry, setExportEntry] = useState<ImageEntry | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const [authState, setAuthState] = useState<'checking' | 'locked' | 'unlocked'>('checking')
@@ -171,7 +165,6 @@ export default function App() {
 
     window.sorter.getDB().then(applyDB)
     window.sorter.getVersion().then(setVersion)
-    window.sorter.getBmpPath().then(setBmpPath)
 
     const offAdded = window.sorter.onFileAdded((entry) => {
       setEntries(prev => ({ ...prev, [entry.path]: entry }))
@@ -198,7 +191,10 @@ export default function App() {
   const filteredEntries = useMemo<ImageEntry[]>(() => {
     let list = Object.values(entries)
 
+    // 'all' hides archived on purpose — that's the point of archiving, keep already-used
+    // renders out of the main triage view. They're only visible via the Archived tab.
     if (filter !== 'all') list = list.filter(e => e.status === filter)
+    else list = list.filter(e => e.status !== 'archived')
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(e => e.path.toLowerCase().includes(q) || e.note.toLowerCase().includes(q))
@@ -210,7 +206,7 @@ export default function App() {
         case 'oldest':  return a.addedAt - b.addedAt
         case 'rating':  return b.rating - a.rating
         case 'status': {
-          const order: Record<Status, number> = { keep: 0, maybe: 1, unsorted: 2, discard: 3 }
+          const order: Record<Status, number> = { keep: 0, maybe: 1, unsorted: 2, discard: 3, archived: 4 }
           return order[a.status] - order[b.status]
         }
         case 'name': return a.path.localeCompare(b.path)
@@ -271,11 +267,13 @@ export default function App() {
   const counts = useMemo(() => {
     const all = Object.values(entries)
     return {
-      all: all.length,
+      // Matches what the 'All' tab actually shows — archived is deliberately excluded there
+      all: all.filter(e => e.status !== 'archived').length,
       unsorted: all.filter(e => e.status === 'unsorted').length,
       keep:     all.filter(e => e.status === 'keep').length,
       maybe:    all.filter(e => e.status === 'maybe').length,
       discard:  all.filter(e => e.status === 'discard').length,
+      archived: all.filter(e => e.status === 'archived').length,
     }
   }, [entries])
 
@@ -288,6 +286,20 @@ export default function App() {
   const setRating = useCallback((path: string, rating: number) => {
     setEntries(prev => prev[path] ? { ...prev, [path]: { ...prev[path], rating, updatedAt: Date.now() } } : prev)
     window.sorter.setRating(path, rating)
+  }, [])
+
+  const toggleArchive = useCallback((path: string) => {
+    setStatus(path, entries[path]?.status === 'archived' ? 'unsorted' : 'archived')
+  }, [entries, setStatus])
+
+  const toggleDiscard = useCallback((path: string) => {
+    setStatus(path, entries[path]?.status === 'discard' ? 'unsorted' : 'discard')
+  }, [entries, setStatus])
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, path: string) => {
+    e.preventDefault()
+    setSelectedPath(path)
+    setContextMenu({ path, x: e.clientX, y: e.clientY })
   }, [])
 
   const setNote = useCallback((path: string, note: string) => {
@@ -361,6 +373,8 @@ export default function App() {
     'D': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'discard') },
     'u': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'unsorted') },
     'U': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'unsorted') },
+    'a': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'archived') },
+    'A': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'archived') },
     '1': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 1) },
     '2': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 2) },
     '3': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 3) },
@@ -386,7 +400,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen bg-bg overflow-hidden">
-      <TitleBar onImport={handleImport} onRescan={handleRescan} scanning={scanning} bmpPath={bmpPath} discardCount={counts.discard} onTrashDiscarded={handleTrashDiscarded} />
+      <TitleBar onImport={handleImport} onRescan={handleRescan} scanning={scanning} discardCount={counts.discard} onTrashDiscarded={handleTrashDiscarded} />
       <div className="h-px bg-border flex-shrink-0" />
       <UpdateBar />
 
@@ -470,6 +484,7 @@ export default function App() {
                                 isNew={newPaths.has(entry.path)}
                                 onClick={() => setSelectedPath(entry.path)}
                                 onDoubleClick={() => { setSelectedPath(entry.path); setViewMode('focus') }}
+                                onContextMenu={(e) => handleContextMenu(e, entry.path)}
                               />
                             ))}
                           </div>
@@ -494,6 +509,7 @@ export default function App() {
                   isNew={newPaths.has(entry.path)}
                   onClick={() => setSelectedPath(entry.path)}
                   onDoubleClick={() => { setSelectedPath(entry.path); setViewMode('focus') }}
+                  onContextMenu={(e) => handleContextMenu(e, entry.path)}
                 />
               ))}
             </div>
@@ -585,6 +601,19 @@ export default function App() {
         <ExporterPanel
           entry={exportEntry}
           onClose={() => setExportEntry(null)}
+        />
+      )}
+
+      {contextMenu && entries[contextMenu.path] && (
+        <ContextMenu
+          entry={entries[contextMenu.path]}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onReveal={(p) => window.sorter.revealInFinder(p)}
+          onOpen={(p) => window.sorter.openExternal(p)}
+          onToggleArchive={toggleArchive}
+          onToggleDiscard={toggleDiscard}
         />
       )}
     </div>

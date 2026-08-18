@@ -121,7 +121,7 @@ function setupAutoUpdater(win: BrowserWindow) {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Status = 'unsorted' | 'keep' | 'maybe' | 'discard'
+type Status = 'unsorted' | 'keep' | 'maybe' | 'discard' | 'archived'
 
 interface ImageEntry {
   path: string
@@ -709,7 +709,6 @@ ipcMain.handle('auth:unlock', (_e, attempt: unknown) => {
 
 handleWhenUnlocked('sorter:get-db', () => db)
 
-handleWhenUnlocked('sorter:get-bmp-path', () => watchPath)
 
 handleWhenUnlocked('sorter:scan-desktop', () => {
   watchPath = getBmpOutputPath()
@@ -754,7 +753,7 @@ function mutateEntry(path: string, fn: (e: ImageEntry) => void): void {
   scheduleFlush()
 }
 
-const VALID_STATUSES: Status[] = ['unsorted', 'keep', 'maybe', 'discard']
+const VALID_STATUSES: Status[] = ['unsorted', 'keep', 'maybe', 'discard', 'archived']
 
 handleWhenUnlocked('sorter:set-status', (_event, { path, status }: { path: string; status: Status }) => {
   if (typeof path !== 'string' || !VALID_STATUSES.includes(status)) return

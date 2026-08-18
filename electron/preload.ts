@@ -10,7 +10,6 @@ contextBridge.exposeInMainWorld('sorter', {
   // Electron 32+ removed File.path from the renderer — this resolves the
   // absolute path of files dragged in from Finder
   getPathForFile: (file: File)                    => webUtils.getPathForFile(file),
-  getBmpPath:     ()                              => ipcRenderer.invoke('sorter:get-bmp-path'),
   scanDesktop:    ()                              => ipcRenderer.invoke('sorter:scan-desktop'),
   importFolder:   ()                              => ipcRenderer.invoke('sorter:import-folder'),
   importPaths:    (paths: string[])               => ipcRenderer.invoke('sorter:import-paths', paths),
