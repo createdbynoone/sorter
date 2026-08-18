@@ -985,8 +985,8 @@ function initialWindowSize(): { width: number; height: number } {
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     ...initialWindowSize(),
-    minWidth: 920,
-    minHeight: 600,
+    minWidth: 640,
+    minHeight: 420,
     backgroundColor: '#0c0c0c',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },

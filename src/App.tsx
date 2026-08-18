@@ -62,19 +62,19 @@ function TitleBar({ onImport, onRescan, scanning, bmpPath, discardCount, onTrash
   }
 
   return (
-    <div className="titlebar-drag flex items-center justify-between px-5 h-11 flex-shrink-0">
-      <div className="titlebar-nodrag flex items-center gap-3 translate-y-[1px]" style={{ marginLeft: '72px' }}>
-        <span className="font-heading font-bold text-base text-text-primary tracking-[0.15em] uppercase">Sorter</span>
-        <span className="text-text-muted text-xs">·</span>
-        <span className="text-text-secondary text-xs font-medium tracking-wide">Generation Triage</span>
+    <div className="titlebar-drag flex items-center justify-between gap-3 px-5 h-11 flex-shrink-0">
+      <div className="titlebar-nodrag flex items-center gap-3 min-w-0 overflow-hidden translate-y-[1px]" style={{ marginLeft: '72px' }}>
+        <span className="flex-shrink-0 font-heading font-bold text-base text-text-primary tracking-[0.15em] uppercase">Sorter</span>
+        <span className="flex-shrink-0 text-text-muted text-xs hidden sm:inline">·</span>
+        <span className="flex-shrink-0 text-text-secondary text-xs font-medium tracking-wide whitespace-nowrap hidden sm:inline">Generation Triage</span>
         {shortPath && (
           <>
-            <span className="text-border text-xs">·</span>
-            <span className="text-[11.7px] font-mono text-text-muted/60 truncate max-w-[280px]" title={bmpPath}>{shortPath}</span>
+            <span className="flex-shrink-0 text-border text-xs hidden md:inline">·</span>
+            <span className="text-[11.7px] font-mono text-text-muted/60 truncate max-w-[280px] hidden md:inline" title={bmpPath}>{shortPath}</span>
           </>
         )}
       </div>
-      <div className="titlebar-nodrag flex items-center gap-2">
+      <div className="titlebar-nodrag flex items-center gap-2 flex-shrink-0">
         {discardCount > 0 && (
           <>
             {!confirming ? (
@@ -511,7 +511,13 @@ export default function App() {
         >
           <div className="px-4 py-3 border-b border-border flex-shrink-0 flex items-center justify-between">
             <span className="text-[11.7px] font-heading font-semibold uppercase tracking-widest text-text-secondary">Inspector</span>
-            <button onClick={() => setInspectorOpen(false)} className="text-text-muted hover:text-text-secondary text-xs transition-colors">×</button>
+            <button
+              onClick={() => setInspectorOpen(false)}
+              title="Close Inspector (I)"
+              className="w-6 h-6 -mr-1 flex items-center justify-center rounded text-text-muted hover:text-text-secondary hover:bg-white/5 transition-colors text-sm"
+            >
+              ×
+            </button>
           </div>
           <Inspector
             entry={selectedEntry}
@@ -527,17 +533,25 @@ export default function App() {
           />
         </div>
 
-        {/* Inspector toggle — compact floating chevron, not a full-height text tab.
-            Points left (closed → click to bring the panel in) or right (open → click to
-            send it back out), same z-20 stacking as the panel so it never sits under a badge. */}
+        {/* Inspector toggle — slides between the closed (right-2) and open (right-[272px])
+            positions, chevron rotates to match. `fixed` (not `absolute`) so it's centered on
+            the whole window height, not on Main's — Main's height shrinks ~36px whenever
+            FilterBar wraps to a second row, which was dragging the old `absolute top-1/2`
+            button down by half that (the "se baja" bug).
+            `no-press-scale`: the global `button:active { transform: scale(0.96) }` tactile
+            style (index.css) was the REAL cause of "se baja al hacer click" — it replaces
+            this button's whole `transform`, wiping out the -translate-y-1/2 centering the
+            instant you press it, so it visibly drops for the duration of the click. This
+            class opts the button out of that rule so only the `right` slide animates.
+            40px hit area (was 28px) for easier, more forgiving clicking. */}
         <button
           onClick={() => setInspectorOpen(o => !o)}
           title={inspectorOpen ? 'Close Inspector (I)' : 'Open Inspector (I)'}
-          className={`absolute top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-7 h-7 rounded-full border border-border bg-surface/90 backdrop-blur-sm text-text-muted hover:text-text-primary hover:border-[#3d3d3d] shadow-lg transition-[right] duration-300 ease-out ${
+          className={`no-press-scale fixed top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-10 h-10 rounded-full border border-border bg-surface/90 backdrop-blur-sm text-text-muted hover:text-text-primary hover:border-[#3d3d3d] shadow-lg transition-[right] duration-300 ease-out ${
             inspectorOpen ? 'right-[272px]' : 'right-2'
           }`}
         >
-          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" className={`transition-transform duration-300 ${inspectorOpen ? 'rotate-180' : ''}`}>
+          <svg width="10" height="10" viewBox="0 0 9 9" fill="none" className={`transition-transform duration-300 ${inspectorOpen ? 'rotate-180' : ''}`}>
             <path d="M6 1.5L2.5 4.5L6 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>

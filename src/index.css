@@ -73,6 +73,12 @@ textarea { resize: none; outline: none; background: transparent; }
 button {
   transition: transform 0.1s ease;
 }
-button:active {
+/* :not(.no-press-scale) — a button that uses `transform` for its own positioning
+   (e.g. -translate-y-1/2 to center itself) can't also take this press-scale:
+   `transform` is a single property, so the plain scale(0.96) below would replace
+   the centering translate entirely instead of composing with it, and the button
+   would visibly jump to its untransformed position for the duration of the
+   click. Add `no-press-scale` to any button whose position depends on transform. */
+button:not(.no-press-scale):active {
   transform: scale(0.96);
 }

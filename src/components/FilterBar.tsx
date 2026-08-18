@@ -47,9 +47,9 @@ const GRID_SIZES = [120, 160, 220, 300, 400]
 
 export function FilterBar({ filter, onFilter, sort, onSort, search, onSearch, counts, searchRef, gridSize, onGridSize }: Props) {
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-bg border-b border-border flex-shrink-0 flex-wrap">
-      {/* Status pills */}
-      <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center gap-2 px-4 py-2 bg-bg border-b border-border flex-shrink-0">
+      {/* Status pills — wraps internally too if the window gets very narrow */}
+      <div className="flex flex-wrap items-center gap-1 flex-shrink-0">
         {FILTER_TABS.map(tab => {
           const count = counts[tab.key]
           const active = filter === tab.key
@@ -69,85 +69,86 @@ export function FilterBar({ filter, onFilter, sort, onSort, search, onSearch, co
         })}
       </div>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Right cluster — sits at the end of the status-pills line when there's room, otherwise
+          wraps down as its own row (and its own sub-groups wrap further if still too narrow) */}
+      <div className="flex flex-wrap items-center gap-2 ml-auto">
+        {/* Sort */}
+        <div className="flex flex-wrap items-center gap-1 flex-shrink-0">
+          <span className="text-[11.7px] font-mono text-text-muted uppercase tracking-widest mr-1">Sort</span>
+          {SORT_OPTIONS.map(opt => (
+            <button
+              key={opt.key}
+              onClick={() => onSort(opt.key)}
+              className={`
+                px-2 py-[5px] rounded text-[11.7px] font-mono transition-all duration-150
+                ${sort === opt.key ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'}
+              `}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
 
-      {/* Sort */}
-      <div className="flex items-center gap-1">
-        <span className="text-[11.7px] font-mono text-text-muted uppercase tracking-widest mr-1">Sort</span>
-        {SORT_OPTIONS.map(opt => (
+        {/* Divider */}
+        <div className="w-px h-4 bg-border flex-shrink-0" />
+
+        {/* Grid zoom */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
-            key={opt.key}
-            onClick={() => onSort(opt.key)}
-            className={`
-              px-2 py-[5px] rounded text-[11.7px] font-mono transition-all duration-150
-              ${sort === opt.key ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'}
-            `}
+            onClick={() => { const i = GRID_SIZES.indexOf(gridSize); if (i > 0) onGridSize(GRID_SIZES[i - 1]) }}
+            disabled={gridSize <= GRID_SIZES[0]}
+            className="text-text-muted hover:text-text-secondary disabled:opacity-25 transition-colors"
+            title="Zoom out"
           >
-            {opt.label}
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+              <rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+              <rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+              <rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+            </svg>
           </button>
-        ))}
-      </div>
+          <input
+            type="range"
+            min={0}
+            max={GRID_SIZES.length - 1}
+            step={1}
+            value={GRID_SIZES.indexOf(gridSize)}
+            onChange={e => onGridSize(GRID_SIZES[parseInt(e.target.value)])}
+            className="w-14 h-px accent-accent cursor-pointer"
+            style={{ accentColor: '#E8B547' }}
+          />
+          <button
+            onClick={() => { const i = GRID_SIZES.indexOf(gridSize); if (i < GRID_SIZES.length - 1) onGridSize(GRID_SIZES[i + 1]) }}
+            disabled={gridSize >= GRID_SIZES[GRID_SIZES.length - 1]}
+            className="text-text-muted hover:text-text-secondary disabled:opacity-25 transition-colors"
+            title="Zoom in"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="0.5" y="0.5" width="11" height="11" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+            </svg>
+          </button>
+        </div>
 
-      {/* Divider */}
-      <div className="w-px h-4 bg-border flex-shrink-0" />
+        {/* Divider */}
+        <div className="w-px h-4 bg-border flex-shrink-0" />
 
-      {/* Grid zoom */}
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => { const i = GRID_SIZES.indexOf(gridSize); if (i > 0) onGridSize(GRID_SIZES[i - 1]) }}
-          disabled={gridSize <= GRID_SIZES[0]}
-          className="text-text-muted hover:text-text-secondary disabled:opacity-25 transition-colors"
-          title="Zoom out"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <rect x="1" y="1" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
-            <rect x="7" y="1" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
-            <rect x="1" y="7" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
-            <rect x="7" y="7" width="4" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.1"/>
+        {/* Search */}
+        <div className="flex items-center gap-1.5 bg-surface border border-border rounded-lg px-2.5 py-[5px] flex-shrink-0">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-text-muted flex-shrink-0">
+            <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
+            <path d="M7 7l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
           </svg>
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={GRID_SIZES.length - 1}
-          step={1}
-          value={GRID_SIZES.indexOf(gridSize)}
-          onChange={e => onGridSize(GRID_SIZES[parseInt(e.target.value)])}
-          className="w-14 h-px accent-accent cursor-pointer"
-          style={{ accentColor: '#E8B547' }}
-        />
-        <button
-          onClick={() => { const i = GRID_SIZES.indexOf(gridSize); if (i < GRID_SIZES.length - 1) onGridSize(GRID_SIZES[i + 1]) }}
-          disabled={gridSize >= GRID_SIZES[GRID_SIZES.length - 1]}
-          className="text-text-muted hover:text-text-secondary disabled:opacity-25 transition-colors"
-          title="Zoom in"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <rect x="0.5" y="0.5" width="11" height="11" rx="1" stroke="currentColor" strokeWidth="1.1"/>
-          </svg>
-        </button>
-      </div>
-
-      {/* Divider */}
-      <div className="w-px h-4 bg-border flex-shrink-0" />
-
-      {/* Search */}
-      <div className="flex items-center gap-1.5 bg-surface border border-border rounded-lg px-2.5 py-[5px]">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="text-text-muted flex-shrink-0">
-          <circle cx="4.5" cy="4.5" r="3" stroke="currentColor" strokeWidth="1.2"/>
-          <path d="M7 7l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-        </svg>
-        <input
-          ref={searchRef}
-          value={search}
-          onChange={e => onSearch(e.target.value)}
-          placeholder="Search..."
-          className="w-24 bg-transparent text-[11.7px] font-mono text-text-primary placeholder:text-text-muted focus:outline-none"
-        />
-        {search && (
-          <button onClick={() => onSearch('')} className="text-text-muted hover:text-text-secondary text-[11.7px]">×</button>
-        )}
+          <input
+            ref={searchRef}
+            value={search}
+            onChange={e => onSearch(e.target.value)}
+            placeholder="Search..."
+            className="w-24 bg-transparent text-[11.7px] font-mono text-text-primary placeholder:text-text-muted focus:outline-none"
+          />
+          {search && (
+            <button onClick={() => onSearch('')} className="text-text-muted hover:text-text-secondary text-[11.7px]">×</button>
+          )}
+        </div>
       </div>
     </div>
   )
