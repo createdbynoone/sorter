@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { StatusPill } from './StatusBadge'
-import { RatingDots } from './RatingDots'
 import { isVideoPath, toLocalFileUrl } from '../utils/media'
 import type { ImageEntry, Category, Status } from '../env'
 
@@ -8,10 +7,10 @@ interface Props {
   entry: ImageEntry | null
   categories: Record<string, Category>
   onStatus: (path: string, s: Status) => void
-  onRating: (path: string, r: number) => void
   onNote: (path: string, n: string) => void
   onCategories: (path: string, ids: string[]) => void
   onAddCategory: (name: string, parentId?: string) => void
+  onDeleteCategory: (id: string) => void
   onReveal: (path: string) => void
   onOpen: (path: string) => void
   focusNote?: boolean
@@ -19,14 +18,38 @@ interface Props {
 
 const STATUSES: Status[] = ['keep', 'maybe', 'discard', 'archived', 'unsorted']
 
-export function Inspector({ entry, categories, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, focusNote }: Props) {
+export function Inspector({ entry, categories, onStatus, onNote, onCategories, onAddCategory, onDeleteCategory, onReveal, onOpen, focusNote }: Props) {
   const [noteValue, setNoteValue] = useState('')
   const [newCatName, setNewCatName] = useState('')
   const [addingCat, setAddingCat] = useState(false)
   const [addingCatParentId, setAddingCatParentId] = useState<string | undefined>(undefined)
   const [resolution, setResolution] = useState<string>('')
+  const [catCtxMenu, setCatCtxMenu] = useState<{ id: string; name: string; x: number; y: number } | null>(null)
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState(false)
+  const catCtxRef = useRef<HTMLDivElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const newCatRef = useRef<HTMLInputElement>(null)
+
+  const openCatCtxMenu = useCallback((e: React.MouseEvent, cat: Category) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setConfirmDeleteCat(false)
+    setCatCtxMenu({ id: cat.id, name: cat.name, x: e.clientX, y: e.clientY })
+  }, [])
+
+  useEffect(() => {
+    if (!catCtxMenu) return
+    function onDown(e: MouseEvent) {
+      if (catCtxRef.current && !catCtxRef.current.contains(e.target as Node)) setCatCtxMenu(null)
+    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setCatCtxMenu(null) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [catCtxMenu])
 
   useEffect(() => {
     if (!entry) { setResolution(''); return }
@@ -116,6 +139,7 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
   const date = new Date(entry.addedAt).toLocaleDateString('es-CO', { month: 'short', day: 'numeric', year: 'numeric' })
 
   return (
+    <>
     <div className="flex flex-col gap-4 p-4 overflow-y-auto h-full">
       {/* File info */}
       <div className="flex flex-col gap-1">
@@ -141,12 +165,6 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
             <StatusPill key={s} status={s} active={entry.status === s} onClick={() => onStatus(entry.path, s)} />
           ))}
         </div>
-      </div>
-
-      {/* Rating */}
-      <div className="flex flex-col gap-2">
-        <span className="text-[11.7px] font-heading font-semibold uppercase tracking-widest text-text-secondary">Rating</span>
-        <RatingDots rating={entry.rating} onChange={(r) => onRating(entry.path, r)} size="md" />
       </div>
 
       <div className="h-px bg-border" />
@@ -190,7 +208,7 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
                 {parentCats.map(cat => {
                   const active = entry.categories.includes(cat.id)
                   return (
-                    <button key={cat.id} onClick={() => toggleCat(cat.id)}
+                    <button key={cat.id} onClick={() => toggleCat(cat.id)} onContextMenu={e => openCatCtxMenu(e, cat)}
                       className={`px-2 py-1 rounded-md text-[11.7px] font-mono uppercase border transition-all duration-150
                         ${active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}`}>
                       {cat.name}
@@ -226,7 +244,7 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
                     {subs.map(cat => {
                       const active = activeSubs.includes(cat.id)
                       return (
-                        <button key={cat.id} onClick={() => toggleCat(cat.id)}
+                        <button key={cat.id} onClick={() => toggleCat(cat.id)} onContextMenu={e => openCatCtxMenu(e, cat)}
                           className={`px-2 py-0.5 rounded text-[11.7px] font-mono uppercase border transition-all duration-150
                             ${active ? 'border-accent/40 bg-accent/8 text-accent/80' : 'border-border/60 text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}`}>
                           {cat.name}
@@ -272,5 +290,32 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
         </button>
       </div>
     </div>
+
+    {/* Floating delete menu — right-click a category/product chip */}
+    {catCtxMenu && (
+      <div
+        ref={catCtxRef}
+        style={{ left: catCtxMenu.x, top: catCtxMenu.y }}
+        className="fixed z-50 w-[168px] flex flex-col gap-1 p-1.5 rounded-xl border border-border bg-surface/80 backdrop-blur-xl shadow-2xl animate-menu-in"
+      >
+        <button
+          onClick={() => {
+            if (!confirmDeleteCat) { setConfirmDeleteCat(true); return }
+            onDeleteCategory(catCtxMenu.id)
+            setCatCtxMenu(null)
+            setConfirmDeleteCat(false)
+          }}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[11.7px] font-heading font-semibold uppercase tracking-widest transition-all duration-150 ${
+            confirmDeleteCat ? 'text-red-300 bg-red-500/15 hover:bg-red-500/25' : 'text-red-400 hover:bg-red-500/10'
+          }`}
+        >
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" className="flex-shrink-0">
+            <path d="M1 2.5h9M3.5 2.5V1.5h4V2.5M2 2.5l.5 7h6l.5-7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {confirmDeleteCat ? 'Confirm delete?' : `Delete "${catCtxMenu.name}"`}
+        </button>
+      </div>
+    )}
+    </>
   )
 }

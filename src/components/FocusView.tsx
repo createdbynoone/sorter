@@ -12,17 +12,17 @@ interface Props {
   onClose: () => void
   onNavigate: (idx: number) => void
   onStatus: (path: string, s: Status) => void
-  onRating: (path: string, r: number) => void
   onNote: (path: string, n: string) => void
   onCategories: (path: string, ids: string[]) => void
   onAddCategory: (name: string) => void
+  onDeleteCategory: (id: string) => void
   onReveal: (path: string) => void
   onOpen: (path: string) => void
   autoAdvance: boolean
   onExport?: (entry: ImageEntry) => void
 }
 
-export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onRating, onNote, onCategories, onAddCategory, onReveal, onOpen, autoAdvance, onExport }: Props) {
+export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onNote, onCategories, onAddCategory, onDeleteCategory, onReveal, onOpen, autoAdvance, onExport }: Props) {
   const entry = entries[index]
   const [focusNote, setFocusNote] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -60,12 +60,6 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
     'U': () => setStatusAndAdvance('unsorted'),
     'a': () => setStatusAndAdvance('archived'),
     'A': () => setStatusAndAdvance('archived'),
-    '1': () => entry && onRating(entry.path, 1),
-    '2': () => entry && onRating(entry.path, 2),
-    '3': () => entry && onRating(entry.path, 3),
-    '4': () => entry && onRating(entry.path, 4),
-    '5': () => entry && onRating(entry.path, 5),
-    '0': () => entry && onRating(entry.path, 0),
     'n': () => setFocusNote(true),
     'N': () => setFocusNote(true),
     'r': () => entry && onReveal(entry.path),
@@ -280,10 +274,10 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
           entry={entry}
           categories={categories}
           onStatus={onStatus}
-          onRating={onRating}
           onNote={onNote}
           onCategories={onCategories}
           onAddCategory={onAddCategory}
+          onDeleteCategory={onDeleteCategory}
           onReveal={onReveal}
           onOpen={onOpen}
           focusNote={focusNote}

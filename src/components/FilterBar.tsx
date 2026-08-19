@@ -1,7 +1,7 @@
 import React from 'react'
 import type { Status } from '../env'
 
-export type SortKey = 'newest' | 'oldest' | 'status' | 'rating' | 'name'
+export type SortKey = 'newest' | 'oldest' | 'status' | 'name'
 export type FilterStatus = Status | 'all'
 
 interface Counts { all: number; unsorted: number; keep: number; maybe: number; discard: number; archived: number }
@@ -32,7 +32,6 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'newest', label: 'Newest' },
   { key: 'oldest', label: 'Oldest' },
   { key: 'status', label: 'Status' },
-  { key: 'rating', label: 'Rating' },
   { key: 'name', label: 'Name' },
 ]
 

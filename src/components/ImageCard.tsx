@@ -1,7 +1,6 @@
 import React, { useRef, useEffect } from 'react'
 import { useThumbnail } from '../hooks/useThumbnail'
 import { StatusBadge } from './StatusBadge'
-import { RatingDots } from './RatingDots'
 import { isVideoPath } from '../utils/media'
 import type { ImageEntry, Category } from '../env'
 
@@ -107,10 +106,9 @@ export function ImageCard({ entry, categories, selected, primary, isNew, onClick
         </div>
       )}
 
-      {/* Bottom overlay — rating + cats (hover) */}
+      {/* Bottom overlay — cats (hover) */}
       <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/80 to-transparent px-2 pb-2 pt-4 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-        <div className="flex items-end justify-between gap-1">
-          {entry.rating > 0 && <RatingDots rating={entry.rating} />}
+        <div className="flex items-end justify-end gap-1">
           <div className="flex items-center gap-1 flex-wrap justify-end">
             {catChips.map(cat => (
               <span key={cat.id} className="text-[11.7px] font-mono uppercase text-text-muted border border-border rounded px-1 py-0.5 bg-black/60 truncate max-w-[60px]">

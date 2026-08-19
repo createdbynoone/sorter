@@ -210,7 +210,6 @@ export default function App() {
       switch (sort) {
         case 'newest':  return b.addedAt - a.addedAt
         case 'oldest':  return a.addedAt - b.addedAt
-        case 'rating':  return b.rating - a.rating
         case 'status': {
           const order: Record<Status, number> = { keep: 0, maybe: 1, unsorted: 2, discard: 3, archived: 4 }
           return order[a.status] - order[b.status]
@@ -287,11 +286,6 @@ export default function App() {
   const setStatus = useCallback((path: string, status: Status) => {
     setEntries(prev => prev[path] ? { ...prev, [path]: { ...prev[path], status, updatedAt: Date.now() } } : prev)
     window.sorter.setStatus(path, status)
-  }, [])
-
-  const setRating = useCallback((path: string, rating: number) => {
-    setEntries(prev => prev[path] ? { ...prev, [path]: { ...prev[path], rating, updatedAt: Date.now() } } : prev)
-    window.sorter.setRating(path, rating)
   }, [])
 
   // Bulk-safe: archives everything unless the whole selection is already
@@ -414,6 +408,13 @@ export default function App() {
     window.sorter.addCategory(name, parentId, undefined).then(cats => setCategories(cats))
   }, [])
 
+  // Deleting a category cascades to its subcategories and strips the id from
+  // every entry on the main-process side — refetch the whole DB rather than
+  // hand-patching local state, so entries.categories stays in sync too.
+  const deleteCategory = useCallback((id: string) => {
+    window.sorter.deleteCategory(id).then(() => window.sorter.getDB()).then(applyDB)
+  }, [])
+
   const handleImport = useCallback(() => {
     window.sorter.importFolder().then(applyDB)
   }, [])
@@ -473,12 +474,6 @@ export default function App() {
     'U': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'unsorted') },
     'a': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'archived') },
     'A': () => { if (viewMode === 'grid' && selectedPath) setStatus(selectedPath, 'archived') },
-    '1': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 1) },
-    '2': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 2) },
-    '3': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 3) },
-    '4': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 4) },
-    '5': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 5) },
-    '0': () => { if (viewMode === 'grid' && selectedPath) setRating(selectedPath, 0) },
     'n': () => { if (viewMode === 'grid' && selectedPath) { setFocusNote(true); if (!inspectorOpen) setInspectorOpen(true) } },
     'N': () => { if (viewMode === 'grid' && selectedPath) { setFocusNote(true); if (!inspectorOpen) setInspectorOpen(true) } },
     'r': () => { if (viewMode === 'grid' && selectedPath) window.sorter.revealInFinder(selectedPath) },
@@ -647,10 +642,10 @@ export default function App() {
             entry={selectedEntry}
             categories={categories}
             onStatus={setStatus}
-            onRating={setRating}
             onNote={setNote}
             onCategories={setCats}
             onAddCategory={addCategory}
+            onDeleteCategory={deleteCategory}
             onReveal={(p) => window.sorter.revealInFinder(p)}
             onOpen={(p) => window.sorter.openExternal(p)}
             focusNote={focusNote}
@@ -704,10 +699,10 @@ export default function App() {
           onClose={() => setViewMode('grid')}
           onNavigate={(idx) => setSelectedPath(filteredEntries[idx]?.path ?? selectedPath)}
           onStatus={setStatus}
-          onRating={setRating}
           onNote={setNote}
           onCategories={setCats}
           onAddCategory={addCategory}
+          onDeleteCategory={deleteCategory}
           onReveal={(p) => window.sorter.revealInFinder(p)}
           onOpen={(p) => window.sorter.openExternal(p)}
           autoAdvance={autoAdvance}
