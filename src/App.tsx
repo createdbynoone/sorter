@@ -415,6 +415,11 @@ export default function App() {
     window.sorter.deleteCategory(id).then(() => window.sorter.getDB()).then(applyDB)
   }, [])
 
+  const renameCategory = useCallback((id: string, name: string) => {
+    setCategories(prev => prev[id] ? { ...prev, [id]: { ...prev[id], name } } : prev)
+    window.sorter.renameCategory(id, name)
+  }, [])
+
   const handleImport = useCallback(() => {
     window.sorter.importFolder().then(applyDB)
   }, [])
@@ -646,9 +651,11 @@ export default function App() {
             onCategories={setCats}
             onAddCategory={addCategory}
             onDeleteCategory={deleteCategory}
+            onRenameCategory={renameCategory}
             onReveal={(p) => window.sorter.revealInFinder(p)}
             onOpen={(p) => window.sorter.openExternal(p)}
             focusNote={focusNote}
+            inspectorOpen={inspectorOpen}
           />
         </div>
 
@@ -703,6 +710,7 @@ export default function App() {
           onCategories={setCats}
           onAddCategory={addCategory}
           onDeleteCategory={deleteCategory}
+          onRenameCategory={renameCategory}
           onReveal={(p) => window.sorter.revealInFinder(p)}
           onOpen={(p) => window.sorter.openExternal(p)}
           autoAdvance={autoAdvance}

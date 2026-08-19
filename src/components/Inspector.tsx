@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { StatusPill } from './StatusBadge'
 import { isVideoPath, toLocalFileUrl } from '../utils/media'
 import type { ImageEntry, Category, Status } from '../env'
@@ -11,14 +12,20 @@ interface Props {
   onCategories: (path: string, ids: string[]) => void
   onAddCategory: (name: string, parentId?: string) => void
   onDeleteCategory: (id: string) => void
+  onRenameCategory: (id: string, name: string) => void
   onReveal: (path: string) => void
   onOpen: (path: string) => void
   focusNote?: boolean
+  // The grid's Inspector panel stays mounted when "closed" (just slid off-screen
+  // via CSS transform) rather than unmounting, so the portaled delete menu has
+  // no natural way to know it should disappear too. Omit/true for contexts
+  // (Focus View) that don't have an open/close toggle at all.
+  inspectorOpen?: boolean
 }
 
 const STATUSES: Status[] = ['keep', 'maybe', 'discard', 'archived', 'unsorted']
 
-export function Inspector({ entry, categories, onStatus, onNote, onCategories, onAddCategory, onDeleteCategory, onReveal, onOpen, focusNote }: Props) {
+export function Inspector({ entry, categories, onStatus, onNote, onCategories, onAddCategory, onDeleteCategory, onRenameCategory, onReveal, onOpen, focusNote, inspectorOpen = true }: Props) {
   const [noteValue, setNoteValue] = useState('')
   const [newCatName, setNewCatName] = useState('')
   const [addingCat, setAddingCat] = useState(false)
@@ -26,9 +33,34 @@ export function Inspector({ entry, categories, onStatus, onNote, onCategories, o
   const [resolution, setResolution] = useState<string>('')
   const [catCtxMenu, setCatCtxMenu] = useState<{ id: string; name: string; x: number; y: number } | null>(null)
   const [confirmDeleteCat, setConfirmDeleteCat] = useState(false)
+  const [renamingCatId, setRenamingCatId] = useState<string | null>(null)
+  const [renameCatValue, setRenameCatValue] = useState('')
   const catCtxRef = useRef<HTMLDivElement>(null)
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const newCatRef = useRef<HTMLInputElement>(null)
+  const renameCatRef = useRef<HTMLInputElement>(null)
+
+  const startRenameCat = useCallback((cat: Category) => {
+    setRenamingCatId(cat.id)
+    setRenameCatValue(cat.name)
+  }, [])
+
+  const commitRenameCat = useCallback(() => {
+    const name = renameCatValue.trim()
+    if (name && renamingCatId) onRenameCategory(renamingCatId, name)
+    setRenamingCatId(null)
+  }, [renameCatValue, renamingCatId, onRenameCategory])
+
+  useEffect(() => {
+    if (renamingCatId) setTimeout(() => { renameCatRef.current?.focus(); renameCatRef.current?.select() }, 0)
+  }, [renamingCatId])
+
+  useEffect(() => {
+    if (inspectorOpen) return
+    setCatCtxMenu(null)
+    setRenamingCatId(null)
+    setAddingCat(false)
+  }, [inspectorOpen])
 
   const openCatCtxMenu = useCallback((e: React.MouseEvent, cat: Category) => {
     e.preventDefault()
@@ -36,6 +68,22 @@ export function Inspector({ entry, categories, onStatus, onNote, onCategories, o
     setConfirmDeleteCat(false)
     setCatCtxMenu({ id: cat.id, name: cat.name, x: e.clientX, y: e.clientY })
   }, [])
+
+  // Category chips live right against the Inspector's right edge (the panel
+  // itself hugs the window's right edge), so the menu needs to clamp into the
+  // viewport — without this it rendered off-screen to the right and was
+  // impossible to click, which is what "no me deja borrar" actually was.
+  const [catCtxPos, setCatCtxPos] = useState<{ left: number; top: number } | null>(null)
+  useEffect(() => {
+    if (!catCtxMenu) { setCatCtxPos(null); return }
+    const el = catCtxRef.current
+    if (!el) return
+    const { offsetWidth: w, offsetHeight: h } = el
+    setCatCtxPos({
+      left: Math.max(4, Math.min(catCtxMenu.x, window.innerWidth - w - 4)),
+      top: Math.max(4, Math.min(catCtxMenu.y, window.innerHeight - h - 4)),
+    })
+  }, [catCtxMenu])
 
   useEffect(() => {
     if (!catCtxMenu) return
@@ -207,8 +255,17 @@ export function Inspector({ entry, categories, onStatus, onNote, onCategories, o
               <div className="flex flex-wrap gap-1.5">
                 {parentCats.map(cat => {
                   const active = entry.categories.includes(cat.id)
+                  if (renamingCatId === cat.id) {
+                    return (
+                      <input key={cat.id} ref={renameCatRef} value={renameCatValue}
+                        onChange={e => setRenameCatValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') commitRenameCat(); if (e.key === 'Escape') setRenamingCatId(null) }}
+                        onBlur={commitRenameCat}
+                        className="px-2 py-1 rounded-md text-[11.7px] font-mono uppercase border border-accent/40 bg-accent/5 text-text-primary outline-none w-24" />
+                    )
+                  }
                   return (
-                    <button key={cat.id} onClick={() => toggleCat(cat.id)} onContextMenu={e => openCatCtxMenu(e, cat)}
+                    <button key={cat.id} onClick={() => toggleCat(cat.id)} onDoubleClick={e => { e.stopPropagation(); startRenameCat(cat) }} onContextMenu={e => openCatCtxMenu(e, cat)}
                       className={`px-2 py-1 rounded-md text-[11.7px] font-mono uppercase border transition-all duration-150
                         ${active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}`}>
                       {cat.name}
@@ -243,8 +300,17 @@ export function Inspector({ entry, categories, onStatus, onNote, onCategories, o
                   <div className="flex flex-wrap gap-1.5">
                     {subs.map(cat => {
                       const active = activeSubs.includes(cat.id)
+                      if (renamingCatId === cat.id) {
+                        return (
+                          <input key={cat.id} ref={renameCatRef} value={renameCatValue}
+                            onChange={e => setRenameCatValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') commitRenameCat(); if (e.key === 'Escape') setRenamingCatId(null) }}
+                            onBlur={commitRenameCat}
+                            className="px-2 py-0.5 rounded text-[11.7px] font-mono uppercase border border-accent/40 bg-accent/5 text-text-primary outline-none w-24" />
+                        )
+                      }
                       return (
-                        <button key={cat.id} onClick={() => toggleCat(cat.id)} onContextMenu={e => openCatCtxMenu(e, cat)}
+                        <button key={cat.id} onClick={() => toggleCat(cat.id)} onDoubleClick={e => { e.stopPropagation(); startRenameCat(cat) }} onContextMenu={e => openCatCtxMenu(e, cat)}
                           className={`px-2 py-0.5 rounded text-[11.7px] font-mono uppercase border transition-all duration-150
                             ${active ? 'border-accent/40 bg-accent/8 text-accent/80' : 'border-border/60 text-text-muted hover:border-[#3d3d3d] hover:text-text-secondary'}`}>
                           {cat.name}
@@ -291,11 +357,17 @@ export function Inspector({ entry, categories, onStatus, onNote, onCategories, o
       </div>
     </div>
 
-    {/* Floating delete menu — right-click a category/product chip */}
-    {catCtxMenu && (
+    {/* Floating delete menu — right-click a category/product chip.
+        Portaled to document.body: the grid's Inspector panel wrapper has
+        backdrop-blur-xl, which (like transform/filter) creates a new
+        containing block for position:fixed descendants — without the portal
+        this menu got clipped/mispositioned to that 260px panel instead of
+        the real viewport, which is what made delete silently unusable there
+        (Focus View's Inspector has no backdrop-blur ancestor, so it worked). */}
+    {catCtxMenu && createPortal(
       <div
         ref={catCtxRef}
-        style={{ left: catCtxMenu.x, top: catCtxMenu.y }}
+        style={{ left: catCtxPos?.left ?? catCtxMenu.x, top: catCtxPos?.top ?? catCtxMenu.y, visibility: catCtxPos ? 'visible' : 'hidden' }}
         className="fixed z-50 w-[168px] flex flex-col gap-1 p-1.5 rounded-xl border border-border bg-surface/80 backdrop-blur-xl shadow-2xl animate-menu-in"
       >
         <button
@@ -314,7 +386,8 @@ export function Inspector({ entry, categories, onStatus, onNote, onCategories, o
           </svg>
           {confirmDeleteCat ? 'Confirm delete?' : `Delete "${catCtxMenu.name}"`}
         </button>
-      </div>
+      </div>,
+      document.body
     )}
     </>
   )

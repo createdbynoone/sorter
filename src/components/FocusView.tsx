@@ -16,13 +16,14 @@ interface Props {
   onCategories: (path: string, ids: string[]) => void
   onAddCategory: (name: string) => void
   onDeleteCategory: (id: string) => void
+  onRenameCategory: (id: string, name: string) => void
   onReveal: (path: string) => void
   onOpen: (path: string) => void
   autoAdvance: boolean
   onExport?: (entry: ImageEntry) => void
 }
 
-export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onNote, onCategories, onAddCategory, onDeleteCategory, onReveal, onOpen, autoAdvance, onExport }: Props) {
+export function FocusView({ entries, index, categories, onClose, onNavigate, onStatus, onNote, onCategories, onAddCategory, onDeleteCategory, onRenameCategory, onReveal, onOpen, autoAdvance, onExport }: Props) {
   const entry = entries[index]
   const [focusNote, setFocusNote] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -278,6 +279,7 @@ export function FocusView({ entries, index, categories, onClose, onNavigate, onS
           onCategories={onCategories}
           onAddCategory={onAddCategory}
           onDeleteCategory={onDeleteCategory}
+          onRenameCategory={onRenameCategory}
           onReveal={onReveal}
           onOpen={onOpen}
           focusNote={focusNote}

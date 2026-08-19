@@ -20,6 +20,10 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: #242424; border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: #323232; }
 
+/* Text selection — was the browser's default bright blue, clashing with the
+   dark/accent palette everywhere text is selectable (rename inputs, notes). */
+::selection { background: rgba(232, 181, 71, 0.35); color: #F5F0E6; }
+
 .titlebar-drag { -webkit-app-region: drag; }
 .titlebar-nodrag { -webkit-app-region: no-drag; }
 
