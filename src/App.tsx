@@ -145,7 +145,13 @@ export default function App() {
   const [gridSize, setGridSize] = useState(160)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [exportEntry, setExportEntry] = useState<ImageEntry | null>(null)
-  const [contextMenu, setContextMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ paths: string[]; x: number; y: number } | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const selectedPathsRef = useRef(selectedPaths); selectedPathsRef.current = selectedPaths
+  const [marqueeRect, setMarqueeRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const marqueeStateRef = useRef<{ startX: number; startY: number; additive: boolean; baseSelection: Set<string> } | null>(null)
+  const marqueeRafRef = useRef<number | null>(null)
+  const gridContainerRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   const [authState, setAuthState] = useState<'checking' | 'locked' | 'unlocked'>('checking')
@@ -288,18 +294,110 @@ export default function App() {
     window.sorter.setRating(path, rating)
   }, [])
 
-  const toggleArchive = useCallback((path: string) => {
-    setStatus(path, entries[path]?.status === 'archived' ? 'unsorted' : 'archived')
+  // Bulk-safe: archives everything unless the whole selection is already
+  // archived, in which case it flips back to unsorted (so single-item right
+  // click still behaves like the old toggle).
+  const archiveMany = useCallback((paths: string[]) => {
+    const allArchived = paths.every(p => entries[p]?.status === 'archived')
+    const next: Status = allArchived ? 'unsorted' : 'archived'
+    paths.forEach(p => setStatus(p, next))
   }, [entries, setStatus])
 
-  const toggleDiscard = useCallback((path: string) => {
-    setStatus(path, entries[path]?.status === 'discard' ? 'unsorted' : 'discard')
+  const discardMany = useCallback((paths: string[]) => {
+    const allDiscard = paths.every(p => entries[p]?.status === 'discard')
+    const next: Status = allDiscard ? 'unsorted' : 'discard'
+    paths.forEach(p => setStatus(p, next))
   }, [entries, setStatus])
 
+  // Plain click selects just this card. ⌘/Ctrl-click toggles it in/out of the
+  // selection. Shift-click extends a range from the current anchor (selectedPath)
+  // to the clicked card, matching Finder — the anchor doesn't move on shift-click
+  // so repeated shift-clicks keep expanding/contracting from the same origin.
+  const handleCardClick = useCallback((e: React.MouseEvent, path: string) => {
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedPaths(prev => {
+        const next = new Set(prev)
+        if (next.has(path)) next.delete(path); else next.add(path)
+        return next
+      })
+      setSelectedPath(path)
+      return
+    }
+    if (e.shiftKey && selectedPath) {
+      const a = filteredEntries.findIndex(x => x.path === selectedPath)
+      const b = filteredEntries.findIndex(x => x.path === path)
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a]
+        setSelectedPaths(new Set(filteredEntries.slice(lo, hi + 1).map(x => x.path)))
+        return
+      }
+    }
+    setSelectedPaths(new Set([path]))
+    setSelectedPath(path)
+  }, [selectedPath, filteredEntries])
+
+  // Drag-select rectangle over empty grid space — same visual/intersection
+  // behavior as Brotherhood Canvas's SelectionMode.Partial: a card is selected
+  // the moment the rectangle merely touches it, not only when fully enclosed.
+  const onGridMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    if (target.closest('[data-image-card]')) return
+    e.preventDefault()
+
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey
+    marqueeStateRef.current = {
+      startX: e.clientX, startY: e.clientY, additive,
+      baseSelection: additive ? new Set(selectedPathsRef.current) : new Set(),
+    }
+    setMarqueeRect({ x: e.clientX, y: e.clientY, w: 0, h: 0 })
+    if (!additive) { setSelectedPaths(new Set()); setSelectedPath(null) }
+
+    function onMove(ev: MouseEvent) {
+      if (marqueeRafRef.current) return
+      marqueeRafRef.current = requestAnimationFrame(() => {
+        marqueeRafRef.current = null
+        const m = marqueeStateRef.current
+        if (!m) return
+        const x = Math.min(m.startX, ev.clientX)
+        const y = Math.min(m.startY, ev.clientY)
+        const w = Math.abs(ev.clientX - m.startX)
+        const h = Math.abs(ev.clientY - m.startY)
+        setMarqueeRect({ x, y, w, h })
+
+        const cards = gridContainerRef.current?.querySelectorAll<HTMLElement>('[data-image-card]')
+        const touched = new Set(m.baseSelection)
+        cards?.forEach(el => {
+          const r = el.getBoundingClientRect()
+          const intersects = r.left < x + w && r.right > x && r.top < y + h && r.bottom > y
+          if (intersects) touched.add(el.dataset.path!)
+        })
+        setSelectedPaths(touched)
+      })
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      marqueeStateRef.current = null
+      setMarqueeRect(null)
+      if (marqueeRafRef.current) { cancelAnimationFrame(marqueeRafRef.current); marqueeRafRef.current = null }
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  // Right-clicking a card that's part of an active multi-selection keeps the
+  // whole group as the menu target. Right-clicking anything else collapses
+  // the selection down to just that card first — matches Brotherhood Canvas.
   const handleContextMenu = useCallback((e: React.MouseEvent, path: string) => {
     e.preventDefault()
-    setSelectedPath(path)
-    setContextMenu({ path, x: e.clientX, y: e.clientY })
+    const current = selectedPathsRef.current
+    const isPartOfMulti = current.size > 1 && current.has(path)
+    if (!isPartOfMulti) {
+      setSelectedPaths(new Set([path]))
+      setSelectedPath(path)
+    }
+    setContextMenu({ paths: isPartOfMulti ? Array.from(current) : [path], x: e.clientX, y: e.clientY })
   }, [])
 
   const setNote = useCallback((path: string, note: string) => {
@@ -390,6 +488,9 @@ export default function App() {
     'I': () => setInspectorOpen(o => !o),
     '[': () => setGridSize(s => { const sizes = [120,160,220,300,400]; const i = sizes.indexOf(s); return i > 0 ? sizes[i-1] : s }),
     ']': () => setGridSize(s => { const sizes = [120,160,220,300,400]; const i = sizes.indexOf(s); return i < sizes.length-1 ? sizes[i+1] : s }),
+    'cmd+a': (e) => { e.preventDefault(); setSelectedPaths(new Set(filteredEntries.map(x => x.path))) },
+    'ctrl+a': (e) => { e.preventDefault(); setSelectedPaths(new Set(filteredEntries.map(x => x.path))) },
+    'Escape': () => setSelectedPaths(prev => prev.size > 1 ? new Set() : prev),
   }, viewMode === 'grid')
 
   if (authState === 'checking') return null
@@ -416,7 +517,12 @@ export default function App() {
       {/* Main */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Grid — always full width; the Inspector floats on top of it */}
-        <div className="flex-1 overflow-y-auto p-3">
+        <div
+          ref={gridContainerRef}
+          className="flex-1 overflow-y-auto p-3"
+          onMouseDown={onGridMouseDown}
+          onClick={e => { if (e.target === e.currentTarget) { setSelectedPaths(new Set()); setSelectedPath(null) } }}
+        >
           {filteredEntries.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <p className="text-[11.7px] text-text-muted font-mono uppercase tracking-[0.2em]">
@@ -480,10 +586,11 @@ export default function App() {
                                 key={entry.path}
                                 entry={entry}
                                 categories={categories}
-                                selected={entry.path === selectedPath}
+                                selected={selectedPaths.has(entry.path)}
+                                primary={entry.path === selectedPath}
                                 isNew={newPaths.has(entry.path)}
-                                onClick={() => setSelectedPath(entry.path)}
-                                onDoubleClick={() => { setSelectedPath(entry.path); setViewMode('focus') }}
+                                onClick={(e) => handleCardClick(e, entry.path)}
+                                onDoubleClick={() => { setSelectedPaths(new Set([entry.path])); setSelectedPath(entry.path); setViewMode('focus') }}
                                 onContextMenu={(e) => handleContextMenu(e, entry.path)}
                               />
                             ))}
@@ -505,10 +612,11 @@ export default function App() {
                   key={entry.path}
                   entry={entry}
                   categories={categories}
-                  selected={entry.path === selectedPath}
+                  selected={selectedPaths.has(entry.path)}
+                  primary={entry.path === selectedPath}
                   isNew={newPaths.has(entry.path)}
-                  onClick={() => setSelectedPath(entry.path)}
-                  onDoubleClick={() => { setSelectedPath(entry.path); setViewMode('focus') }}
+                  onClick={(e) => handleCardClick(e, entry.path)}
+                  onDoubleClick={() => { setSelectedPaths(new Set([entry.path])); setSelectedPath(entry.path); setViewMode('focus') }}
                   onContextMenu={(e) => handleContextMenu(e, entry.path)}
                 />
               ))}
@@ -573,6 +681,18 @@ export default function App() {
         </button>
       </div>
 
+      {/* Drag-select rectangle — same visual as Brotherhood Canvas's marquee */}
+      {marqueeRect && (marqueeRect.w > 2 || marqueeRect.h > 2) && (
+        <div
+          className="fixed z-40 pointer-events-none rounded"
+          style={{
+            left: marqueeRect.x, top: marqueeRect.y, width: marqueeRect.w, height: marqueeRect.h,
+            background: 'rgba(232, 181, 71, 0.06)',
+            border: '1px solid rgba(232, 181, 71, 0.4)',
+          }}
+        />
+      )}
+
       <Footer entries={Object.values(entries)} version={version} />
 
       {/* Focus view overlay */}
@@ -604,16 +724,16 @@ export default function App() {
         />
       )}
 
-      {contextMenu && entries[contextMenu.path] && (
+      {contextMenu && contextMenu.paths.some(p => entries[p]) && (
         <ContextMenu
-          entry={entries[contextMenu.path]}
+          entries={contextMenu.paths.map(p => entries[p]).filter(Boolean)}
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
           onReveal={(p) => window.sorter.revealInFinder(p)}
           onOpen={(p) => window.sorter.openExternal(p)}
-          onToggleArchive={toggleArchive}
-          onToggleDiscard={toggleDiscard}
+          onArchiveMany={archiveMany}
+          onDiscardMany={discardMany}
         />
       )}
     </div>

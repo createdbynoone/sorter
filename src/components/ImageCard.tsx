@@ -9,13 +9,14 @@ interface Props {
   entry: ImageEntry
   categories: Record<string, Category>
   selected: boolean
+  primary?: boolean
   isNew?: boolean
-  onClick: () => void
+  onClick: (e: React.MouseEvent) => void
   onDoubleClick: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }
 
-export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubleClick, onContextMenu }: Props) {
+export function ImageCard({ entry, categories, selected, primary, isNew, onClick, onDoubleClick, onContextMenu }: Props) {
   const { src, ref: thumbRef } = useThumbnail(entry.path)
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -32,14 +33,18 @@ export function ImageCard({ entry, categories, selected, isNew, onClick, onDoubl
     window.sorter.dragStart(entry.path)
   }
 
-  // Scroll into view when selected
+  // Scroll into view only for the primary/anchor card — keying this off `selected`
+  // instead would fire scrollIntoView for every card in a multi-selection at once
+  // (indeterminate which one wins) on every shift-click range select.
   useEffect(() => {
-    if (selected) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [selected])
+    if (primary) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [primary])
 
   return (
     <div
       ref={cardRef}
+      data-image-card="true"
+      data-path={entry.path}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}

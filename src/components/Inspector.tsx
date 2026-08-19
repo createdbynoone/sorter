@@ -63,13 +63,31 @@ export function Inspector({ entry, categories, onStatus, onRating, onNote, onCat
     if (focusNote) noteRef.current?.focus()
   }, [focusNote])
 
+  // One category + one product per image — a category/product click always
+  // REPLACES whatever was selected at that level (radio behavior), instead of
+  // accumulating into a checkbox list. That accumulation was the actual bug:
+  // clicking a second parent category didn't switch to it, it just added a
+  // second active category on top of the first.
   const toggleCat = useCallback((id: string) => {
     if (!entry) return
-    const ids = entry.categories.includes(id)
-      ? entry.categories.filter(c => c !== id)
-      : [...entry.categories, id]
+    const cat = categories[id]
+    if (!cat) return
+    const isParent = !cat.parentId
+    let ids: string[]
+
+    if (isParent) {
+      const currentParent = entry.categories.find(cid => categories[cid] && !categories[cid].parentId)
+      // Clicking the already-active category deselects it (and its product,
+      // since products are scoped to a category). Clicking a different one
+      // switches to it, dropping the old category and its product.
+      ids = currentParent === id ? [] : [id]
+    } else {
+      const parentId = entry.categories.find(cid => categories[cid] && !categories[cid].parentId) ?? cat.parentId
+      const currentSub = entry.categories.find(cid => categories[cid]?.parentId === cat.parentId)
+      ids = currentSub === id ? [parentId] : [parentId, id]
+    }
     onCategories(entry.path, ids)
-  }, [entry, onCategories])
+  }, [entry, categories, onCategories])
 
   const handleAddCat = useCallback(() => {
     const name = newCatName.trim()
